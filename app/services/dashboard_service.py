@@ -76,11 +76,12 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
     signals_by_severity = _build_signals(session, uid)
     insights = _build_insights(session, uid)
 
+    fallback_kpis = _kpis_from_orders(orders_df)
     kpis = {
-        "total_revenue": metrics_map.get("gross_revenue", 0.0),
-        "net_revenue": metrics_map.get("net_revenue", 0.0),
-        "aov": metrics_map.get("aov", 0.0),
-        "total_orders": metrics_map.get("total_orders", 0.0),
+        "total_revenue": metrics_map.get("gross_revenue", fallback_kpis["total_revenue"]),
+        "net_revenue": metrics_map.get("net_revenue", fallback_kpis["net_revenue"]),
+        "aov": metrics_map.get("aov", fallback_kpis["aov"]),
+        "total_orders": metrics_map.get("total_orders", fallback_kpis["total_orders"]),
     }
 
     return DashboardData(
@@ -105,12 +106,9 @@ def _load_metric_snapshots(session: Session, upload_id: int) -> dict[str, float]
     rows = MetricRepository(session).list_for_upload(upload_id)
     out: dict[str, float] = {}
     for s in rows:
-        if (
-            s.metric_scope == "overall"
-            and s.period_type == "all_time"
-            and s.dimension_1 is None
-            and s.dimension_2 is None
-        ):
+        # New pipeline stores per-domain scopes (revenue/orders/products/customers),
+        # not only "overall". Accept all all-time scalar snapshots.
+        if s.period_type == "all_time" and s.dimension_1 is None and s.dimension_2 is None:
             out[s.metric_code] = float(s.metric_value)
     return out
 
@@ -143,6 +141,26 @@ def _build_orders_table(session: Session, upload_id: int) -> pd.DataFrame:
     if not df.empty:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
     return df
+
+
+def _kpis_from_orders(orders_df: pd.DataFrame) -> dict[str, float]:
+    if orders_df.empty:
+        return {
+            "total_revenue": 0.0,
+            "net_revenue": 0.0,
+            "aov": 0.0,
+            "total_orders": 0.0,
+        }
+    total_revenue = float(orders_df["total_revenue"].sum())
+    net_revenue = float(orders_df["net_revenue"].sum())
+    total_orders = float(len(orders_df))
+    aov = (net_revenue / total_orders) if total_orders > 0 else 0.0
+    return {
+        "total_revenue": total_revenue,
+        "net_revenue": net_revenue,
+        "aov": aov,
+        "total_orders": total_orders,
+    }
 
 
 def _build_time_series(orders_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
