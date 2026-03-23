@@ -9,6 +9,7 @@ from typing import BinaryIO
 from sqlalchemy.orm import Session
 
 from app.models.insight import Insight
+from app.models.metric_snapshot import MetricSnapshot
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.signal_event import SignalEvent
@@ -144,9 +145,29 @@ def process_shopify_csv(
             )
         order_repo.add_order_items(line_rows)
 
-        metric_result = run_all_metrics(session, upload.id)
-        metric_repo.replace_for_upload(upload.id, list(metric_result.snapshots))
-        metric_map = metrics_as_flat_dict(metric_result.snapshots)
+        metrics = run_all_metrics(
+            orders=orders_data,
+            order_items=items_data,
+            customers=customers_data,
+        )
+        snapshots: list[MetricSnapshot] = []
+        for scope, values in metrics.items():
+            for code, value in values.items():
+                if isinstance(value, (int, float, Decimal)):
+                    snapshots.append(
+                        MetricSnapshot(
+                            upload_id=upload.id,
+                            metric_code=code,
+                            metric_scope=scope,
+                            dimension_1=None,
+                            dimension_2=None,
+                            period_type="all_time",
+                            period_value=None,
+                            metric_value=Decimal(str(value)),
+                        )
+                    )
+        metric_repo.replace_for_upload(upload.id, snapshots)
+        metric_map = metrics_as_flat_dict(metrics)
 
         drafts = run_all_signals(session, upload.id, metric_map)
         events = [_signal_event_from_draft(upload.id, d) for d in drafts]

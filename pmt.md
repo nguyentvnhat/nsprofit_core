@@ -833,3 +833,519 @@ Important:
 
 ```python
 def normalize_shopify_data(rows: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+
+
+#PROMPT 5
+You are a senior data engineer.
+
+Continue the NosaProfit project in the CURRENT FOLDER.
+
+Your task is to implement the metrics engine for NosaProfit.
+
+---
+
+# 🎯 GOAL
+
+Compute business metrics from normalized data:
+
+Input:
+- orders
+- order_items
+- customers
+
+Output:
+- structured metrics dict
+- ready for:
+  - signal engine
+  - dashboard
+  - database storage
+
+---
+
+# 📂 TARGET FOLDER
+
+app/services/metrics_engine/
+
+---
+
+# 📁 REQUIRED FILES
+
+metrics_engine/
+  __init__.py
+  revenue_metrics.py
+  order_metrics.py
+  product_metrics.py
+  customer_metrics.py
+
+---
+
+# 🧠 DESIGN REQUIREMENTS
+
+1. Modular architecture
+- Each file = 1 domain
+- Do NOT create one giant function
+
+2. Pure functions
+- No DB access here
+- No side effects
+
+3. Output must be structured
+
+4. Use Decimal-safe calculations
+
+5. Easy to extend later
+
+---
+
+# ⚙️ CORE METRICS TO IMPLEMENT
+
+## 1. Revenue metrics (revenue_metrics.py)
+
+Implement:
+
+- total_orders
+- gross_revenue (sum of total_price)
+- net_revenue (sum of net_revenue)
+- total_discounts
+- total_refunds
+- total_shipping
+- total_tax
+- AOV = net_revenue / total_orders
+- median_order_value
+
+---
+
+## 2. Order quality metrics (order_metrics.py)
+
+Implement:
+
+- total_units_sold
+- average_units_per_order
+- discounted_order_rate
+- refunded_order_rate
+- free_shipping_rate
+- low_value_order_rate (< threshold)
+- high_value_order_rate (> threshold)
+
+Thresholds configurable
+
+---
+
+## 3. Product metrics (product_metrics.py)
+
+Implement:
+
+- product_revenue (by SKU)
+- product_units
+- top_3_sku_share (% revenue)
+- product_discount_rate
+- product_refund_rate (if possible)
+
+---
+
+## 4. Customer metrics (customer_metrics.py)
+
+Implement:
+
+- total_customers
+- new_customer_count
+- repeat_customer_count
+- repeat_customer_rate
+- new_customer_AOV
+- repeat_customer_AOV
+- top_customer_revenue_share
+
+---
+
+# 🧠 DATA HANDLING RULES
+
+- Always handle division by zero
+- Always use Decimal-safe math
+- Ignore None safely
+- Skip invalid rows instead of crashing
+
+---
+
+# 📦 OUTPUT FORMAT
+
+Return ONE structured dict:
+
+```python
+{
+  "revenue": {...},
+  "orders": {...},
+  "products": {...},
+  "customers": {...}
+}
+
+#PROMPT 6 not
+You are a senior data engineer and business analytics expert.
+
+Continue the NosaProfit project in the CURRENT FOLDER.
+
+Your task is to implement the Signal Engine for NosaProfit.
+
+---
+
+# 🎯 GOAL
+
+Convert computed metrics into structured business signals.
+
+Input:
+- metrics dict (from metrics engine)
+
+Output:
+- list of signal objects
+
+Each signal represents:
+- a detected pattern
+- a risk
+- an opportunity
+- or an anomaly
+
+---
+
+# 📂 TARGET FOLDER
+
+app/services/signal_engine/
+
+---
+
+# 📁 REQUIRED FILES
+
+signal_engine/
+  __init__.py
+  revenue_signals.py
+  product_signals.py
+  customer_signals.py
+  risk_signals.py
+
+---
+
+# 🧠 DESIGN REQUIREMENTS
+
+1. Modular design
+- each file = 1 domain
+- no giant function
+
+2. Pure functions
+- no DB access
+- no side effects
+
+3. Configurable thresholds
+- defined at top of file or config dict
+
+4. Return structured signal objects
+
+---
+
+# 📦 SIGNAL OBJECT FORMAT
+
+Each signal must look like:
+
+```python
+{
+  "signal_code": "high_discount_dependency",
+  "category": "pricing",
+  "severity": "high",   # low / medium / high
+  "entity_type": "overall",  # or product / customer / source
+  "entity_key": None,
+  "signal_value": 18.5,
+  "threshold_value": 15,
+  "context": {
+    "discount_rate": 18.5,
+    "total_orders": 1200
+  }
+}
+
+#PROMPT 7 - NOT
+You are a senior analytics engineer and business strategist.
+
+Continue the NosaProfit project in the CURRENT FOLDER.
+
+Your task is to implement:
+
+1. Rules Engine
+2. Narrative Engine
+
+These components convert signals into business insights.
+
+---
+
+# 🎯 GOAL
+
+Input:
+- metrics dict
+- signals list
+
+Output:
+- list of structured insights ready for UI
+
+---
+
+# 📂 TARGET FILES
+
+app/services/rules_engine.py
+app/services/narrative_engine.py
+
+app/rules/
+  revenue_rules.yaml
+  product_rules.yaml
+  customer_rules.yaml
+  risk_rules.yaml
+
+---
+
+# 🧠 DESIGN REQUIREMENTS
+
+1. Rules must be DATA-DRIVEN (YAML)
+2. No hardcoded business logic in Python
+3. Rules must be easy to extend
+4. Narrative must be deterministic (NO LLM)
+5. Separation:
+   - rules_engine → logic
+   - narrative_engine → text generation
+
+---
+
+# 📦 RULE STRUCTURE (YAML)
+
+Each rule must define:
+
+- rule_code
+- category
+- severity
+- condition
+- title_template
+- summary_template
+- implication_template
+- action_template
+
+---
+
+# 🧪 CONDITION FORMAT
+
+Support:
+
+- metric comparison
+- signal existence
+- metric vs metric
+
+Example:
+
+```yaml
+condition:
+  all:
+    - type: metric
+      metric: discount_rate
+      operator: ">"
+      value: 15
+
+    - type: signal
+      signal_code: high_discount_dependency
+
+
+#prompt 8 - not
+You are a senior frontend + data application engineer.
+
+Continue the NosaProfit project in the CURRENT FOLDER.
+
+Your task is to build a Streamlit dashboard UI for NosaProfit.
+
+---
+
+# 🎯 GOAL
+
+Build a clean, modular Streamlit app that:
+
+1. Allows user to upload Shopify CSV
+2. Runs full pipeline:
+   - parser
+   - normalizer
+   - metrics
+   - signals
+   - insights
+3. Displays:
+   - KPIs
+   - charts
+   - tables
+   - insight cards
+
+---
+
+# 📂 TARGET FOLDER
+
+streamlit_app/
+
+---
+
+# 📁 REQUIRED FILES
+
+streamlit_app/
+  Home.py
+  pages/
+    1_Overview.py
+    2_Orders.py
+    3_Products.py
+    4_Customers.py
+    5_Risks.py
+    6_Insights.py
+
+---
+
+# 🧠 DESIGN RULES
+
+1. NO BUSINESS LOGIC IN UI
+- UI only calls service layer
+
+2. Use a shared service:
+
+app/services/dashboard_service.py
+
+This service should:
+- orchestrate pipeline
+- return ready-to-use data
+
+---
+
+# ⚙️ PIPELINE FLOW
+
+When file uploaded:
+
+1. parse_shopify_csv()
+2. normalize_shopify_data()
+3. compute_metrics()
+4. generate_signals()
+5. evaluate_rules()
+6. generate_insights()
+
+---
+
+# 🎨 UI REQUIREMENTS
+
+## Home.py
+
+- title: "NosaProfit"
+- upload CSV
+- trigger pipeline
+- store results in session state
+
+---
+
+## 1_Overview.py
+
+Display:
+
+- KPI cards:
+  - total revenue
+  - net revenue
+  - AOV
+  - total orders
+- simple charts:
+  - revenue over time
+  - order count over time
+
+---
+
+## 2_Orders.py
+
+- table of orders
+- filters:
+  - date
+  - country
+  - status
+
+---
+
+## 3_Products.py
+
+- top products table
+- revenue by SKU
+- top 3 SKU share
+
+---
+
+## 4_Customers.py
+
+- new vs repeat
+- AOV comparison
+- top customers
+
+---
+
+## 5_Risks.py
+
+- show signals grouped by severity:
+  - high
+  - medium
+  - low
+
+---
+
+## 6_Insights.py
+
+- show insights as cards:
+
+Each card:
+- title
+- summary
+- implication
+- action
+- priority badge
+
+---
+
+# ⚙️ IMPLEMENTATION DETAILS
+
+- use st.session_state to store processed data
+- use pandas DataFrame for tables
+- use st.metric for KPI
+- use st.bar_chart / st.line_chart
+- use st.expander for details
+- clean layout
+
+---
+
+# 🧠 UX RULES
+
+- fast load
+- no clutter
+- focus on decision-making
+- highlight insights clearly
+
+---
+
+# 🧪 ERROR HANDLING
+
+- if no file → show message
+- if processing fails → show error
+- prevent crash
+
+---
+
+# 🚫 DO NOT
+
+- Do NOT compute metrics in UI
+- Do NOT parse CSV in UI directly
+- Do NOT duplicate logic
+
+---
+
+# ✅ SUCCESS CRITERIA
+
+The app must:
+
+- run end-to-end
+- allow file upload
+- show meaningful KPIs
+- show insights clearly
+- be clean and usable
+
+---
+
+# 📦 OUTPUT
+
+Return:
+1. all Streamlit files
+2. dashboard_service.py (if not exists)
+3. clean, production-ready code
