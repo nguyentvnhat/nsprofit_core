@@ -1,13 +1,16 @@
-"""Shared signal DTOs (keep free of collector imports)."""
+"""Shared signal types."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from typing import Any, TypedDict
 
 
-@dataclass(frozen=True)
-class SignalDraft:
-    domain: str
-    code: str
-    severity: str
-    payload: dict[str, object] = field(default_factory=dict)
+class Signal(TypedDict):
+    signal_code: str
+    category: str
+    severity: str  # low / medium / high
+    entity_type: str  # overall / product / customer / source
+    entity_key: str | None
+    signal_value: float
+    threshold_value: float
+    context: dict[str, Any]

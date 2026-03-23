@@ -1,20 +1,14 @@
-"""
-Pluggable signal detectors grouped by domain.
-
-Add a collector function with signature `(Session, int, dict[str, float]) -> Sequence[SignalDraft]`
-and register it in `SIGNAL_COLLECTORS`.
-"""
+"""Pluggable pure signal detectors grouped by domain."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-
-from sqlalchemy.orm import Session
+from typing import Any
 
 from app.services.signal_engine import customer_signals, product_signals, revenue_signals, risk_signals
-from app.services.signal_engine.types import SignalDraft
+from app.services.signal_engine.types import Signal
 
-SignalCollector = Callable[[Session, int, dict[str, float]], Sequence[SignalDraft]]
+SignalCollector = Callable[[dict[str, dict[str, Any]]], Sequence[Signal]]
 
 SIGNAL_COLLECTORS: tuple[SignalCollector, ...] = (
     revenue_signals.collect,
@@ -24,19 +18,15 @@ SIGNAL_COLLECTORS: tuple[SignalCollector, ...] = (
 )
 
 
-def run_all_signals(
-    session: Session,
-    upload_id: int,
-    metric_map: dict[str, float],
-) -> list[SignalDraft]:
-    out: list[SignalDraft] = []
+def run_all_signals(metrics: dict[str, dict[str, Any]]) -> list[Signal]:
+    out: list[Signal] = []
     for fn in SIGNAL_COLLECTORS:
-        out.extend(fn(session, upload_id, metric_map))
+        out.extend(fn(metrics))
     return out
 
 
-def signal_codes(signals: Sequence[SignalDraft]) -> set[str]:
-    return {s.code for s in signals}
+def signal_codes(signals: Sequence[Signal]) -> set[str]:
+    return {str(s["signal_code"]) for s in signals}
 
 
-__all__ = ["SignalDraft", "run_all_signals", "signal_codes", "SIGNAL_COLLECTORS"]
+__all__ = ["Signal", "run_all_signals", "signal_codes", "SIGNAL_COLLECTORS"]
