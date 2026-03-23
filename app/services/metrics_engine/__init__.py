@@ -1,8 +1,7 @@
 """
 Modular metrics registry.
 
-Add a new module (e.g. `shipping_metrics.py`), implement `register_metrics`,
-and append to `METRIC_MODULES` below.
+Add a collector returning ``MetricSnapshot`` rows and register it in ``METRIC_MODULES``.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.metric_snapshot import MetricSnapshot
 from app.services.metrics_engine import customer_metrics, order_metrics, product_metrics, revenue_metrics
+from app.services.metrics_engine.snapshots import build_snapshot
 
 MetricFn = Callable[[Session, int], Sequence[MetricSnapshot]]
 
@@ -38,9 +38,23 @@ def run_all_metrics(session: Session, upload_id: int) -> MetricComputationResult
 
 
 def metrics_as_flat_dict(snapshots: Sequence[MetricSnapshot]) -> dict[str, float]:
-    """Single-dimension metrics for rule evaluation (extend for keyed dimensions later)."""
+    """Overall / all_time metrics for YAML rule evaluation."""
     out: dict[str, float] = {}
     for s in snapshots:
-        if s.dimension_key is None and s.value_numeric is not None:
-            out[s.metric_key] = float(s.value_numeric)
+        if (
+            s.metric_scope == "overall"
+            and s.period_type == "all_time"
+            and s.dimension_1 is None
+            and s.dimension_2 is None
+        ):
+            out[s.metric_code] = float(s.metric_value)
     return out
+
+
+__all__ = [
+    "METRIC_MODULES",
+    "MetricComputationResult",
+    "build_snapshot",
+    "metrics_as_flat_dict",
+    "run_all_metrics",
+]

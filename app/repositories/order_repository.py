@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import datetime
+from decimal import Decimal
+
+from sqlalchemy import desc, nulls_last, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.customer import Customer
@@ -18,43 +21,45 @@ class OrderRepository:
     def add_raw_rows(self, upload_id: int, rows: list[dict], *, start_index: int = 0) -> None:
         for i, payload in enumerate(rows):
             self._session.add(
-                RawOrder(upload_id=upload_id, row_index=start_index + i, raw_payload=payload)
+                RawOrder(
+                    upload_id=upload_id,
+                    row_number=start_index + i,
+                    raw_payload_json=payload,
+                )
             )
         self._session.flush()
 
-    def upsert_customer(
+    def upsert_customer_for_order(
         self,
         *,
         email: str | None,
-        external_id: str | None = None,
-        first_name: str | None = None,
-        last_name: str | None = None,
+        display_name: str | None,
+        order_date: datetime | None,
+        net_revenue: Decimal | None,
     ) -> Customer | None:
-        if not email and not external_id:
+        if not email:
             return None
-        existing = None
-        if email:
-            existing = self._session.scalars(
-                select(Customer).where(Customer.email == email).limit(1)
-            ).first()
-        if existing is None and external_id:
-            existing = self._session.scalars(
-                select(Customer).where(Customer.external_id == external_id).limit(1)
-            ).first()
+        existing = self._session.scalars(select(Customer).where(Customer.email == email).limit(1)).first()
+        net = net_revenue or Decimal("0")
         if existing:
-            if first_name and not existing.first_name:
-                existing.first_name = first_name
-            if last_name and not existing.last_name:
-                existing.last_name = last_name
-            if external_id and not existing.external_id:
-                existing.external_id = external_id
+            if display_name and not existing.name:
+                existing.name = display_name
+            if order_date:
+                if existing.first_order_date is None or order_date < existing.first_order_date:
+                    existing.first_order_date = order_date
+                if existing.last_order_date is None or order_date > existing.last_order_date:
+                    existing.last_order_date = order_date
+            existing.total_orders = int(existing.total_orders or 0) + 1
+            existing.total_spent = Decimal(existing.total_spent or 0) + net
             self._session.flush()
             return existing
         c = Customer(
             email=email,
-            external_id=external_id,
-            first_name=first_name,
-            last_name=last_name,
+            name=display_name,
+            first_order_date=order_date,
+            last_order_date=order_date,
+            total_orders=1,
+            total_spent=net,
         )
         self._session.add(c)
         self._session.flush()
@@ -75,12 +80,11 @@ class OrderRepository:
             select(Order)
             .where(Order.upload_id == upload_id)
             .options(joinedload(Order.items), joinedload(Order.customer))
-            .order_by(Order.processed_at.desc(), Order.id)
+            .order_by(nulls_last(desc(Order.order_date)), Order.id)
         )
         return list(self._session.scalars(stmt).unique().all())
 
     def delete_normalized_for_upload(self, upload_id: int) -> None:
-        """Remove orders (cascades to items) for reprocessing."""
         orders = self._session.scalars(select(Order).where(Order.upload_id == upload_id)).all()
         for o in orders:
             self._session.delete(o)

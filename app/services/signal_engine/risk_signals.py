@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -22,9 +23,9 @@ def collect(
     out: list[SignalDraft] = []
     repo = OrderRepository(session)
     orders = repo.list_orders_for_upload(upload_id)
-    gross = sum((o.total_amount or 0) for o in orders)
-    refunds = sum((o.refund_amount or 0) for o in orders)
-    ratio = (refunds / gross) if gross else 0.0
+    gross = sum((o.total_price or Decimal("0")) for o in orders)
+    refunds = sum((o.refunded_amount or Decimal("0")) for o in orders)
+    ratio = float(refunds / gross) if gross and gross > 0 else 0.0
     if ratio >= DEFAULT_REFUND_TO_GROSS_WARN:
         out.append(
             SignalDraft(
@@ -37,7 +38,7 @@ def collect(
 
     free_ship_flags = 0
     for o in orders:
-        ship = o.shipping_amount or 0
+        ship = o.shipping_amount or Decimal("0")
         if ship == 0 and (o.total_quantity or 0) > 0:
             free_ship_flags += 1
     if len(orders) >= 10 and free_ship_flags / len(orders) > 0.65:

@@ -136,25 +136,27 @@ def evaluate_rules(
 
 
 def sync_rule_definitions(session: Session, rules_dir: Path | None = None) -> None:
-    """Optional: mirror YAML rules into `rule_definitions` for auditing."""
+    """Mirror YAML rules into `rule_definitions` for auditing."""
     base = rules_dir or get_settings().resolved_rules_dir
-    seen: set[str] = set()
     for path, doc in _load_yaml_files(base):
         domain = str(doc.get("domain", "unknown"))
         for rule in doc.get("rules", []) or []:
             rid = str(rule["id"])
-            seen.add(rid)
-            row = session.scalars(select(RuleDefinition).where(RuleDefinition.rule_id == rid)).first()
+            row = session.scalars(select(RuleDefinition).where(RuleDefinition.rule_code == rid)).first()
+            insight = rule.get("insight") or {}
+            sev = str(insight.get("severity", "info"))
             if row is None:
                 row = RuleDefinition(
-                    rule_id=rid,
-                    domain=domain,
-                    yaml_source_path=str(path),
+                    rule_code=rid,
+                    category=domain,
                     is_active=bool(rule.get("enabled", True)),
+                    severity=sev,
+                    condition_json=rule,
                 )
                 session.add(row)
             else:
-                row.domain = domain
-                row.yaml_source_path = str(path)
+                row.category = domain
                 row.is_active = bool(rule.get("enabled", True))
+                row.severity = sev
+                row.condition_json = rule
     session.flush()

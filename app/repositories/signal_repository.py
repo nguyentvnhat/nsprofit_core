@@ -18,8 +18,10 @@ class SignalRepository:
             self._session.add(e)
         self._session.flush()
 
-    def list_for_upload(self, upload_id: int, domain: str | None = None) -> list[SignalEvent]:
+    def list_for_upload(
+        self, upload_id: int, entity_type: str | None = None
+    ) -> list[SignalEvent]:
         stmt = select(SignalEvent).where(SignalEvent.upload_id == upload_id)
-        if domain:
-            stmt = stmt.where(SignalEvent.domain == domain)
+        if entity_type:
+            stmt = stmt.where(SignalEvent.entity_type == entity_type)
         return list(self._session.scalars(stmt).all())

@@ -88,6 +88,7 @@ NARRATIVES: dict[str, NarrativeFn] = {
 @dataclass(frozen=True)
 class NarratedInsight:
     rule_id: str
+    domain: str
     narrative_key: str
     severity: str
     title: str
@@ -102,6 +103,7 @@ def narrate(payload: RuleInsightPayload) -> NarratedInsight:
     parts = fn(payload)
     return NarratedInsight(
         rule_id=payload.rule_id,
+        domain=payload.domain,
         narrative_key=payload.narrative_key,
         severity=payload.severity,
         title=parts["title"],

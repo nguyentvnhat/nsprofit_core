@@ -41,7 +41,7 @@ if rows:
     choice = st.selectbox(
         "Active upload for this session",
         options=ids,
-        format_func=lambda i: next(x for x in rows if x["id"] == i)["filename"] + f" (#{i})",
+        format_func=lambda i: next(x for x in rows if x["id"] == i)["file_name"] + f" (#{i})",
         index=default_idx,
     )
     st.session_state["active_upload_id"] = choice

@@ -1,14 +1,15 @@
-"""SQLAlchemy engine and session factory (MySQL-compatible)."""
+"""SQLAlchemy engine and session factory (MySQL via pymysql)."""
+
+from __future__ import annotations
 
 from collections.abc import Generator
 from contextlib import contextmanager
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
-
-Base = declarative_base()
+from app.models.base import Base
 
 _engine = None
 _SessionLocal = None
@@ -22,6 +23,8 @@ def get_engine():
             settings.database_url,
             pool_pre_ping=True,
             pool_recycle=3600,
+            pool_size=5,
+            max_overflow=10,
             echo=False,
         )
         _SessionLocal = sessionmaker(
@@ -29,8 +32,15 @@ def get_engine():
             autoflush=False,
             bind=_engine,
             class_=Session,
+            expire_on_commit=False,
         )
     return _engine
+
+
+def __getattr__(name: str):
+    if name == "engine":
+        return get_engine()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def get_session_factory():
@@ -55,7 +65,7 @@ def get_db() -> Generator[Session, None, None]:
 
 @contextmanager
 def session_scope() -> Generator[Session, None, None]:
-    """Context manager for non-FastAPI callers (Streamlit, CLI)."""
+    """Context manager for Streamlit, CLI, and jobs."""
     factory = get_session_factory()
     session = factory()
     try:
@@ -69,9 +79,8 @@ def session_scope() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    """Create all tables (MVP). Replace with Alembic for production."""
-    # Import models so they register on Base.metadata
-    from app import models  # noqa: F401
+    """Create all tables (MVP). Prefer Alembic for production."""
+    from app import models  # noqa: F401 — register metadata
 
     engine = get_engine()
     Base.metadata.create_all(bind=engine)

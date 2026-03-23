@@ -1,19 +1,21 @@
-"""Application configuration (env-driven; SaaS-ready: add tenant settings here later)."""
+"""Application configuration — dotenv + required database URL."""
+
+from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Project root = parent of `app/` (where `.env` lives).
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
 load_dotenv(_ENV_FILE)
 
 
 class Settings(BaseSettings):
-    """Runtime settings loaded from environment."""
+    """Runtime settings from environment / `.env`."""
 
     model_config = SettingsConfigDict(
         env_prefix="NOSAPROFIT_",
@@ -22,17 +24,28 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Env: NOSAPROFIT_DATABASE_URL (e.g. in `.env` at project root, loaded via load_dotenv above).
-    database_url: str = "mysql+pymysql://root@127.0.0.1:3306/nosaprofit"
+    database_url: str = Field(
+        ...,
+        description="MySQL URL, e.g. mysql+pymysql://user:pass@127.0.0.1:3306/nosaprofit",
+    )
     rules_dir: Path | None = None
     log_level: str = "INFO"
 
+    @field_validator("database_url")
+    @classmethod
+    def database_url_nonempty(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            raise ValueError(
+                "NOSAPROFIT_DATABASE_URL is required. "
+                "Set it in the environment or in a .env file at the project root."
+            )
+        return s
+
     @property
     def resolved_rules_dir(self) -> Path:
-        """Directory containing YAML rule packs."""
         if self.rules_dir is not None:
             return Path(self.rules_dir).resolve()
-        # Default: app/rules next to this package
         return (Path(__file__).resolve().parent / "rules").resolve()
 
 

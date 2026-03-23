@@ -304,3 +304,436 @@ The output must:
 
 
 #PROMPT 2
+You are a senior Python backend engineer.
+
+Continue the NosaProfit project in the CURRENT FOLDER based on the architecture already generated.
+
+Your task is to implement the database foundation and SQLAlchemy models for the NosaProfit MVP.
+
+Tech stack:
+- Python 3.11+
+- SQLAlchemy 2.0 style
+- MySQL
+- pymysql driver
+- Alembic-ready structure
+- type hints required
+
+Important:
+- Follow the existing architecture in the current folder
+- Do NOT redesign the project
+- Do NOT collapse files into one file
+- Keep code modular and production-minded
+- Assume this project will later expand into customers, products, transactions, discounts, refunds, and shipping
+- Use MySQL-compatible field types and defaults
+
+---
+
+# GOALS
+
+Implement:
+
+1. database connection layer
+2. declarative base
+3. timestamp mixin
+4. all SQLAlchemy models for MVP
+5. model relationships
+6. indexes and constraints
+7. __init__.py exports for models
+8. a simple test_db.py script that validates table creation
+
+---
+
+# REQUIRED FILES TO IMPLEMENT OR UPDATE
+
+app/config.py
+app/database.py
+
+app/models/__init__.py
+app/models/base.py
+app/models/mixins.py
+app/models/upload.py
+app/models/raw_order.py
+app/models/customer.py
+app/models/order.py
+app/models/order_item.py
+app/models/metric_snapshot.py
+app/models/signal_event.py
+app/models/insight.py
+app/models/rule_definition.py
+
+test_db.py
+
+If there is already partial code, improve it instead of replacing architecture.
+
+---
+
+# CONFIG REQUIREMENTS
+
+Implement app/config.py to:
+- load environment variables from .env using python-dotenv
+- expose NOSAPROFIT_DATABASE_URL safely
+- raise a clear error if database URL is missing
+
+Expected env var:
+NOSAPROFIT_DATABASE_URL=mysql+pymysql://user:pass@127.0.0.1:3306/nosaprofit
+
+---
+
+# DATABASE REQUIREMENTS
+
+Implement app/database.py with:
+- SQLAlchemy engine
+- session factory
+- declarative base import
+- helper to get DB session
+- safe MySQL options
+- future-friendly SQLAlchemy 2.0 style
+
+---
+
+# BASE / MIXIN REQUIREMENTS
+
+Create:
+1. base.py
+2. mixins.py
+
+Requirements:
+- use DeclarativeBase
+- create a TimestampMixin
+- created_at and updated_at must be MySQL-safe
+- use server defaults compatible with MySQL
+- avoid invalid datetime defaults
+- use:
+  - server_default=text("CURRENT_TIMESTAMP")
+  - and updated_at with MySQL-safe update behavior if appropriate
+- do NOT use invalid default datetime expressions
+
+---
+
+# MODEL REQUIREMENTS
+
+Implement the following tables:
+
+## 1. uploads
+Purpose:
+- track uploaded source files and processing status
+
+Fields:
+- id
+- file_name
+- file_type
+- source_type
+- status
+- row_count
+- uploaded_at
+- processed_at
+- error_message
+- created_at
+- updated_at
+
+Suggested details:
+- source_type example: shopify_csv
+- status example: uploaded / parsed / normalized / processed / failed
+
+Relationships:
+- uploads -> raw_orders
+- uploads -> orders
+- uploads -> metric_snapshots
+- uploads -> signal_events
+- uploads -> insights
+
+---
+
+## 2. raw_orders
+Purpose:
+- store raw source rows for traceability/debugging
+
+Fields:
+- id
+- upload_id
+- row_number
+- raw_payload_json
+- created_at
+- updated_at
+
+Requirements:
+- use JSON type if suitable, otherwise MySQL-compatible approach
+- indexed by upload_id and row_number
+
+---
+
+## 3. customers
+Purpose:
+- normalized customer-level entity
+
+Fields:
+- id
+- email
+- name
+- first_order_date
+- last_order_date
+- total_orders
+- total_spent
+- created_at
+- updated_at
+
+Requirements:
+- email indexed
+- nullable email allowed because Shopify exports may have missing customer fields
+
+Relationships:
+- customers -> orders
+
+---
+
+## 4. orders
+Purpose:
+- normalized order-level record
+
+Fields:
+- id
+- upload_id
+- external_order_id
+- order_name
+- order_date
+- currency
+- financial_status
+- fulfillment_status
+- source_name
+- customer_id
+- shipping_country
+- subtotal_price
+- discount_amount
+- shipping_amount
+- tax_amount
+- refunded_amount
+- total_price
+- net_revenue
+- total_quantity
+- is_cancelled
+- is_repeat_customer
+- created_at
+- updated_at
+
+Requirements:
+- indexes on:
+  - upload_id
+  - external_order_id
+  - order_date
+  - source_name
+  - customer_id
+- choose precise numeric types for money values
+- use Integer for quantities / booleans for flags
+
+Relationships:
+- orders -> upload
+- orders -> customer
+- orders -> order_items
+
+---
+
+## 5. order_items
+Purpose:
+- normalized line-item-level records
+
+Fields:
+- id
+- order_id
+- sku
+- product_name
+- variant_name
+- vendor
+- quantity
+- unit_price
+- line_discount_amount
+- line_total
+- net_line_revenue
+- requires_shipping
+- created_at
+- updated_at
+
+Requirements:
+- indexes on:
+  - order_id
+  - sku
+  - product_name
+- money fields use precise numeric type
+
+Relationships:
+- order_items -> orders
+
+---
+
+## 6. metric_snapshots
+Purpose:
+- store computed metrics for dashboard and historical comparison
+
+Fields:
+- id
+- upload_id
+- metric_code
+- metric_scope
+- dimension_1
+- dimension_2
+- period_type
+- period_value
+- metric_value
+- created_at
+- updated_at
+
+Examples:
+- metric_code: total_orders, total_revenue, aov
+- metric_scope: overall, product, customer, source
+- period_type: all_time, day, week, month
+
+Requirements:
+- indexed for dashboard lookup
+- metric_value should support decimal numeric values
+
+---
+
+## 7. signal_events
+Purpose:
+- store detected business signals
+
+Fields:
+- id
+- upload_id
+- signal_code
+- severity
+- entity_type
+- entity_key
+- signal_value
+- threshold_value
+- signal_context_json
+- created_at
+- updated_at
+
+Requirements:
+- signal_context_json stores structured context
+- indexes on upload_id, signal_code, severity
+
+---
+
+## 8. insights
+Purpose:
+- store generated narrative insights
+
+Fields:
+- id
+- upload_id
+- insight_code
+- category
+- priority
+- title
+- summary
+- implication_text
+- recommended_action
+- supporting_data_json
+- created_at
+- updated_at
+
+Requirements:
+- indexes on upload_id, category, priority
+- title/summary should use suitable text lengths
+- implication/recommended_action can be Text
+
+---
+
+## 9. rule_definitions
+Purpose:
+- optional persistence for rule definitions if later needed
+
+Fields:
+- id
+- rule_code
+- category
+- is_active
+- severity
+- condition_json
+- title_template
+- summary_template
+- implication_template
+- action_template
+- created_at
+- updated_at
+
+Requirements:
+- unique rule_code
+- JSON/text for condition_json
+- this table is future-ready even if YAML rules are primary in MVP
+
+---
+
+# MODELING RULES
+
+1. Use SQLAlchemy 2.0 typed ORM style:
+   - Mapped[]
+   - mapped_column()
+   - relationship()
+
+2. Use Decimal-friendly numeric columns for money:
+   - Numeric(18, 2) or similar
+
+3. Use clear nullable settings
+4. Use sensible String lengths
+5. Add __repr__ only if useful and concise
+6. Add back_populates consistently
+7. Add cascade behavior where appropriate
+8. Add explicit __tablename__
+
+---
+
+# MODELS INIT REQUIREMENT
+
+In app/models/__init__.py export:
+- Base
+- all model classes
+
+This must allow:
+
+from app.models import Base, Upload, RawOrder, Customer, Order, OrderItem, MetricSnapshot, SignalEvent, Insight, RuleDefinition
+
+---
+
+# TEST SCRIPT REQUIREMENT
+
+Implement test_db.py that:
+- imports engine
+- imports Base
+- imports all models
+- runs Base.metadata.create_all(bind=engine)
+- prints a clear success message
+- catches exceptions and prints readable failure output
+
+---
+
+# OUTPUT FORMAT REQUIREMENTS
+
+Return:
+1. each file path
+2. the code for that file
+3. only files relevant to this task
+4. code must be directly usable
+
+---
+
+# IMPORTANT SAFETY / QUALITY NOTES
+
+- Do NOT use invalid MySQL datetime defaults
+- Do NOT use SQLite-specific behavior
+- Do NOT write pseudo-code
+- Do NOT leave TODO placeholders for core fields
+- Do NOT move business logic into models
+- Keep models clean and focused on persistence
+
+---
+
+# SUCCESS CRITERIA
+
+The generated code must:
+- work with MySQL
+- avoid the previous created_at default error
+- be migration-friendly
+- support future expansion
+- preserve the project architecture already created

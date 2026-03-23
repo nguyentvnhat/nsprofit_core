@@ -25,9 +25,9 @@ if dto is None:
     st.stop()
 
 for ins in dto.insights:
-    with st.expander(f"{ins['title']} ({ins['severity']})", expanded=True):
+    with st.expander(f"{ins['title']} ({ins['priority']})", expanded=True):
         st.write(ins["summary"])
-        if ins.get("implication"):
-            st.markdown(f"**Implication:** {ins['implication']}")
-        if ins.get("action"):
-            st.markdown(f"**Action:** {ins['action']}")
+        if ins.get("implication_text"):
+            st.markdown(f"**Implication:** {ins['implication_text']}")
+        if ins.get("recommended_action"):
+            st.markdown(f"**Action:** {ins['recommended_action']}")

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 from app.models.metric_snapshot import MetricSnapshot
 from app.repositories.order_repository import OrderRepository
+
+from app.services.metrics_engine.snapshots import build_snapshot
 
 
 def collect(session: Session, upload_id: int) -> Sequence[MetricSnapshot]:
@@ -20,14 +23,6 @@ def collect(session: Session, upload_id: int) -> Sequence[MetricSnapshot]:
             by_email[o.customer.email] += 1
     repeat_customers = sum(1 for _, c in by_email.items() if c > 1)
     unique = len(by_email) or 1
-    repeat_ratio = repeat_customers / unique
+    repeat_ratio = Decimal(repeat_customers) / Decimal(unique)
 
-    return [
-        MetricSnapshot(
-            upload_id=upload_id,
-            metric_key="repeat_customer_ratio",
-            dimension_key=None,
-            value_numeric=float(repeat_ratio),
-            value_json={"unique_customers": unique},
-        )
-    ]
+    return [build_snapshot(upload_id, "repeat_customer_ratio", repeat_ratio)]
