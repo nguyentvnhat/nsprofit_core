@@ -33,6 +33,19 @@ _OPS = {
     "==": lambda a, b: a == b,
 }
 
+_BUSINESS_RULE_SIGNAL_MAP: tuple[tuple[str, str], ...] = (
+    ("high_discount_dependency", "discount_dependency_risk"),
+    ("stacked_discounting", "double_discounting_issue"),
+    ("volume_driven_growth", "low_quality_growth"),
+    ("hero_sku_concentration", "sku_concentration_risk"),
+    ("low_order_value_problem", "aov_structure_issue"),
+    ("free_shipping_opportunity", "free_shipping_optimization_opportunity"),
+    ("source_concentration_risk", "channel_dependency_risk"),
+    ("bundle_opportunity", "bundle_revenue_opportunity"),
+    ("data_hygiene_issue", "data_quality_issue"),
+    ("unstable_growth", "revenue_instability"),
+)
+
 
 def _compare(left: float, op: str, right: float) -> bool:
     fn = _OPS.get(op)
@@ -66,6 +79,39 @@ def _extract_signal_codes(signals: list[dict[str, Any]] | set[str]) -> set[str]:
         code = s.get("signal_code")
         if code:
             out.add(str(code))
+    return out
+
+
+def _is_triggered_signal_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return float(value) > 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y"}
+    if isinstance(value, dict):
+        if "active" in value:
+            return _is_triggered_signal_value(value.get("active"))
+        if "triggered" in value:
+            return _is_triggered_signal_value(value.get("triggered"))
+    return False
+
+
+def map_business_rule_flags(signals: dict[str, Any]) -> list[str]:
+    """
+    Deterministically map signal flags -> business rule flags.
+
+    Expected signal keys:
+      high_discount_dependency, stacked_discounting, volume_driven_growth,
+      hero_sku_concentration, low_order_value_problem, free_shipping_opportunity,
+      source_concentration_risk, bundle_opportunity, data_hygiene_issue, unstable_growth.
+    """
+    out: list[str] = []
+    for signal_key, rule_flag in _BUSINESS_RULE_SIGNAL_MAP:
+        if _is_triggered_signal_value(signals.get(signal_key)):
+            out.append(rule_flag)
     return out
 
 
