@@ -1418,8 +1418,8 @@ Requirements:
 - modular functions
 
 
-
-#Prompt 10 - not - signal engine improvements
+#############################################################
+#Prompt 10 - signal engine improvements
 You are a revenue intelligence system.
 
 Using the advanced metrics, generate SIGNALS (structured patterns, not insights yet).
