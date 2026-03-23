@@ -17,13 +17,14 @@ if TYPE_CHECKING:
 
 class RawOrder(TimestampMixin, Base):
     __tablename__ = "raw_orders"
-    __table_args__ = (Index("ix_raw_orders_upload_row", "upload_id", "row_number"),)
+    __table_args__ = (Index("ix_raw_orders_upload_row", "upload_id", "row_index"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     upload_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("uploads.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    raw_payload_json: Mapped[dict] = mapped_column(MySQLJSON, nullable=False)
+    # Legacy schema uses `row_index` and `raw_payload` column names.
+    row_number: Mapped[int] = mapped_column("row_index", Integer, nullable=False)
+    raw_payload_json: Mapped[dict] = mapped_column("raw_payload", MySQLJSON, nullable=False)
 
     upload: Mapped["Upload"] = relationship(back_populates="raw_orders")

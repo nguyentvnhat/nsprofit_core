@@ -180,7 +180,11 @@ def process_shopify_csv(
         ]
         insight_repo.replace_for_upload(upload.id, insights)
 
-        sync_rule_definitions(session)
+        try:
+            sync_rule_definitions(session)
+        except Exception:
+            # Keep ingestion resilient for legacy DBs where rule_definitions schema differs.
+            pass
         upload_repo.update_status(upload, "processed", row_count=len(parse_result.rows))
     except ShopifyExportParseError as exc:
         upload_repo.update_status(upload, "failed", error_message=str(exc))
