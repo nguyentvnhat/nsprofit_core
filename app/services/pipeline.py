@@ -167,8 +167,8 @@ def process_shopify_csv(
         insights = [
             Insight(
                 upload_id=upload.id,
-                insight_code=n.rule_id,
-                category=n.domain,
+                insight_code=n.rule_code,
+                category=n.category,
                 priority=_priority_for_severity(n.severity),
                 title=n.title,
                 summary=n.summary,

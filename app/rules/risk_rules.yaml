@@ -1,14 +1,34 @@
-domain: risk
 rules:
-  - id: refund_stress
+  - rule_code: risk_refund_rate_elevated
+    category: risk
+    severity: high
     enabled: true
-    require_signals:
-      - ELEVATED_REFUND_RATE
-    match:
+    condition:
       all:
-        - metric: order_count
-          op: ">"
+        - type: signal
+          signal_code: ELEVATED_REFUND_RATE
+        - type: metric
+          metric: total_orders
+          operator: ">"
           value: 0
-    insight:
-      narrative_key: risk_refunds
-      severity: warning
+    title_template: "Refund rate is elevated"
+    summary_template: "Refund exposure is above threshold and can erode realized revenue."
+    implication_template: "Operational quality or expectation mismatch may be impacting margin."
+    action_template: "Analyze refund reasons by SKU/source and tighten product QA and PDP clarity."
+
+  - rule_code: risk_free_shipping_overuse
+    category: operational_risk
+    severity: medium
+    enabled: true
+    condition:
+      any:
+        - type: signal
+          signal_code: FREE_SHIPPING_HEAVY
+        - type: metric
+          metric: free_shipping_rate
+          operator: ">"
+          value: 0.65
+    title_template: "Free shipping usage is high"
+    summary_template: "Free shipping rate is {free_shipping_rate:.2f}, reducing contribution margin."
+    implication_template: "Shipping policy may be too permissive for current basket economics."
+    action_template: "Introduce threshold shipping and test geo/product-specific shipping policies."

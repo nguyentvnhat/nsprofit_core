@@ -1,15 +1,34 @@
-# Revenue domain — thresholds live here, not in Python UI code.
-domain: revenue
 rules:
-  - id: revenue_discount_pressure
+  - rule_code: revenue_discount_dependency
+    category: pricing
+    severity: high
     enabled: true
-    require_signals:
-      - HIGH_DISCOUNT_DEPENDENCY
-    match:
+    condition:
       all:
-        - metric: discount_to_gross_ratio
-          op: ">="
+        - type: metric
+          metric: discount_to_gross_ratio
+          operator: ">"
           value: 0.15
-    insight:
-      narrative_key: revenue_discount_pressure
-      severity: warning
+        - type: signal
+          signal_code: HIGH_DISCOUNT_DEPENDENCY
+    title_template: "Discount dependency is above target"
+    summary_template: "Discount-to-gross ratio is {discount_to_gross_ratio:.2f}, indicating margin pressure."
+    implication_template: "Revenue quality is vulnerable to promotional intensity."
+    action_template: "Audit discount ladders and tighten promo guardrails for high-volume SKUs."
+
+  - rule_code: revenue_low_aov
+    category: revenue_quality
+    severity: medium
+    enabled: true
+    condition:
+      any:
+        - type: signal
+          signal_code: LOW_AOV_PRESSURE
+        - type: metric
+          metric: aov
+          operator: "<"
+          value: 20
+    title_template: "Average order value is under pressure"
+    summary_template: "Current AOV is {aov:.2f}, below expected commercial baseline."
+    implication_template: "Acquisition spend may be less efficient with current basket size."
+    action_template: "Test bundle, threshold shipping, and cross-sell strategies to lift basket value."
