@@ -30,7 +30,12 @@ from app.services.signal_engine.types import Signal
 
 
 def _priority_for_severity(severity: str) -> str:
-    return "high" if severity == "warning" else "normal"
+    s = (severity or "").strip().lower()
+    if s in {"high", "critical", "warning"}:
+        return "high"
+    if s in {"medium", "moderate"}:
+        return "normal"
+    return "low"
 
 
 def _signal_event_from_draft(upload_id: int, d: Signal) -> SignalEvent:

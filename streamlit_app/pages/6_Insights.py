@@ -13,6 +13,7 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
+from streamlit_app.ui_components import render_footer
 
 st.set_page_config(page_title="Insights — NosaProfit", layout="wide")
 st.header("Insights")
@@ -49,3 +50,5 @@ for insight in dashboard.insights:
         with st.expander("Details"):
             st.markdown(f"**Implication:** {insight.get('implication') or 'N/A'}")
             st.markdown(f"**Action:** {insight.get('action') or 'N/A'}")
+
+render_footer()
