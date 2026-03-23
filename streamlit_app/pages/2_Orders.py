@@ -14,6 +14,7 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
+from streamlit_app.ui_components import render_footer
 
 st.set_page_config(page_title="Orders — NosaProfit", layout="wide")
 st.header("Orders")
@@ -60,3 +61,4 @@ if selected_statuses:
     filtered = filtered[filtered["status"].isin(selected_statuses)]
 
 st.dataframe(filtered, use_container_width=True, height=520)
+render_footer()

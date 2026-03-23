@@ -13,6 +13,7 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
+from streamlit_app.ui_components import render_footer
 
 st.set_page_config(page_title="Products — NosaProfit", layout="wide")
 st.header("Products")
@@ -38,3 +39,5 @@ else:
         st.metric("Top 3 SKU share", f"{dashboard.top_3_sku_share * 100:.1f}%")
         st.subheader("Revenue by SKU")
         st.bar_chart(dashboard.revenue_by_sku.head(20))
+
+render_footer()

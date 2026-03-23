@@ -12,9 +12,76 @@ rules:
           operator: "<"
           value: 0.15
     title_template: "Repeat customer rate is below target"
-    summary_template: "Repeat customer rate is {repeat_customer_rate:.2f} with {repeat_customer_count:.0f} repeat buyers."
+    summary_template: "Repeat rate is {repeat_customer_rate:.0%} with {repeat_customer_count:.0f} repeat buyers."
     implication_template: "Growth is likely over-dependent on first-time acquisition."
     action_template: "Prioritize post-purchase retention flows and segmented win-back programs."
+
+  - rule_code: customer_repeat_rate_zero
+    category: retention
+    severity: high
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: LOW_REPEAT_MIX
+        - type: metric
+          metric: repeat_customer_rate
+          operator: "<"
+          value: 0.001
+        - type: metric
+          metric: repeat_customer_count
+          operator: "<"
+          value: 0.5
+        - type: metric
+          metric: total_customers
+          operator: ">"
+          value: 0
+    title_template: "No repeat buyers detected"
+    summary_template: "Repeat rate is {repeat_customer_rate:.0%} ({repeat_customer_count:.0f}/{total_customers:.0f} repeat buyers)."
+    implication_template: "Your current acquisition is not converting into repurchases yet."
+    action_template: "Run post-purchase nurture (email/SMS), add reorder incentives after 14/30 days, and test product/packaging messaging on PDP."
+
+  - rule_code: customer_repeat_rate_new_heavy
+    category: retention
+    severity: medium
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: LOW_REPEAT_MIX
+        - type: metric
+          metric: repeat_customer_count
+          operator: "<"
+          value: 0.5
+        - type: metric
+          metric: new_customer_count
+          operator: ">"
+          value: 0
+    title_template: "Acquisition is working, repurchase is not"
+    summary_template: "New customers: {new_customer_count:.0f}. Repeat buyers: {repeat_customer_count:.0f}."
+    implication_template: "Onboarding and first-purchase expectation alignment likely need improvement."
+    action_template: "Audit the customer journey (timing, delivery, and expectation-setting) and add education content + loyalty triggers after first delivery."
+
+  - rule_code: customer_repeat_aov_gap
+    category: retention
+    severity: medium
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: LOW_REPEAT_MIX
+        - type: metric
+          metric: repeat_customer_count
+          operator: ">"
+          value: 0
+        - type: metric_vs_metric
+          left_metric: repeat_customer_AOV
+          right_metric: new_customer_AOV
+          operator: "<"
+    title_template: "Repeat buyers spend less than new buyers"
+    summary_template: "Repeat customer AOV is {repeat_customer_AOV:.2f} vs new customer AOV {new_customer_AOV:.2f}."
+    implication_template: "Your repeat cohort may be under-monetized or facing weaker upsell paths."
+    action_template: "Use replenishment and bundles for repeat cohorts; personalize recommendations based on the first purchase SKU/category."
 
   - rule_code: customer_revenue_concentration
     category: customer_concentration

@@ -14,6 +14,7 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
+from streamlit_app.ui_components import render_footer
 
 st.set_page_config(page_title="Risks — NosaProfit", layout="wide")
 st.header("Risks")
@@ -35,3 +36,5 @@ for severity in ("high", "medium", "low"):
         st.info(f"No {severity} severity signals.")
         continue
     st.dataframe(pd.DataFrame(items), use_container_width=True, height=220)
+
+render_footer()

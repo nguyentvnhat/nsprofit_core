@@ -13,6 +13,7 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
+from streamlit_app.ui_components import render_footer
 
 st.set_page_config(page_title="Customers — NosaProfit", layout="wide")
 st.header("Customers")
@@ -36,3 +37,4 @@ c4.metric("Repeat customer AOV", f"{summary.get('repeat_aov', 0):,.2f}")
 
 st.subheader("Top customers")
 st.dataframe(dashboard.top_customers, use_container_width=True, height=480)
+render_footer()

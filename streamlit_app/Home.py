@@ -13,6 +13,7 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import list_uploads, run_dashboard_pipeline
+from streamlit_app.ui_components import render_footer
 
 st.set_page_config(page_title="NosaProfit", layout="wide")
 st.title("NosaProfit")
@@ -55,3 +56,5 @@ if rows:
     st.dataframe(rows, use_container_width=True, hide_index=True)
 else:
     st.info("No uploads yet — ingest a CSV to begin.")
+
+render_footer()

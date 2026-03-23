@@ -14,6 +14,7 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
+from streamlit_app.ui_components import render_footer
 
 st.set_page_config(page_title="Overview — NosaProfit", layout="wide")
 st.header("Overview")
@@ -56,3 +57,4 @@ with right:
 st.subheader("Recent orders")
 preview = dashboard.orders_table.head(200) if isinstance(dashboard.orders_table, pd.DataFrame) else pd.DataFrame()
 st.dataframe(preview, use_container_width=True, height=360)
+render_footer()
