@@ -13,7 +13,7 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import apply_saas_theme, render_footer, render_page_header
+from streamlit_app.ui_components import apply_saas_theme, fmt_usd, render_footer, render_page_header
 
 st.set_page_config(page_title="Products — NosaProfit", layout="wide")
 apply_saas_theme(current_page="Products")
@@ -73,6 +73,6 @@ else:
                 with st.container(border=True):
                     st.markdown(f"**{product_name}**")
                     st.caption(f"SKU: {sku}")
-                    st.write(f"Revenue: `{rev:,.2f}` · Units: `{qty:,}`")
+                    st.write(f"Revenue: `{fmt_usd(rev)}` · Units: `{qty:,}`")
 
 render_footer()

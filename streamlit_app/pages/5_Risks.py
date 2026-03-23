@@ -22,7 +22,7 @@ render_page_header("Risks", "Severity-based risk monitoring for fast decision-ma
 
 uid = st.session_state.get("active_upload_id")
 dashboard = st.session_state.get("dashboard_data")
-if dashboard is None or dashboard.upload_id != uid:
+if dashboard is None or dashboard.upload_id != uid or not hasattr(dashboard, "money_summary"):
     if uid is None:
         st.warning("Select or process an upload from `Home`.")
         st.stop()
@@ -62,13 +62,37 @@ def _render_risk_card(item: dict) -> None:
     entity_key = item.get("entity_key")
     entity_key_text = str(entity_key) if entity_key not in (None, "") else "-"
     context = item.get("context") if isinstance(item.get("context"), dict) else {}
+    money = getattr(dashboard, "money_summary", {}) or {}
+    signal_label, signal_help = _signal_label_and_help(signal_code)
 
     with st.container(border=True):
-        st.markdown(f"**{signal_code}**")
+        st.markdown(
+            f"<b>{signal_label}</b> "
+            f"<span class=\"np-help\" title=\"{signal_help}\"><i class=\"fa-solid fa-circle-info\"></i></span>",
+            unsafe_allow_html=True,
+        )
+        st.caption(f"Code: {signal_code}")
         c1, c2 = st.columns(2)
-        c1.write(f"Observed value: `{signal_value:,.2f}`")
-        c2.write(f"Threshold value: `{threshold_value:,.2f}`")
-        st.write(f"Entity: `{entity_type}` / `{entity_key_text}`")
+        c1.markdown(
+            "<span title=\"Observed metric value for this risk condition. "
+            "When observed value exceeds (or breaches) threshold, risk is considered active.\">"
+            "Observed value <span class=\"np-help\"><i class=\"fa-solid fa-circle-info\"></i></span></span>",
+            unsafe_allow_html=True,
+        )
+        c1.write(f"`{signal_value:,.2f}`")
+        c2.markdown(
+            "<span title=\"Configured comparison reference used to trigger this risk.\">"
+            "Threshold value <span class=\"np-help\"><i class=\"fa-solid fa-circle-info\"></i></span></span>",
+            unsafe_allow_html=True,
+        )
+        c2.write(f"`{threshold_value:,.2f}`")
+        if entity_key_text == "-":
+            st.write(f"Entity: `{entity_type}`")
+        else:
+            st.write(f"Entity: `{entity_type}` / `{entity_key_text}`")
+        hint = _impact_hint(item, money)
+        if hint:
+            st.caption(f"**Estimated business impact:** {hint}")
         if context:
             with st.expander("Business context"):
                 labels: dict[str, str] = {
@@ -100,6 +124,99 @@ def _render_risk_card(item: dict) -> None:
                     else:
                         text_value = str(value)
                     st.write(f"**{label}:** {text_value}")
+
+
+def _impact_hint(item: dict, money_summary: dict) -> str:
+    signal_code = str(item.get("signal_code") or "")
+    code = (signal_code or "").strip().upper()
+    context = item.get("context") if isinstance(item.get("context"), dict) else {}
+    signal_value = float(item.get("signal_value") or 0.0)
+
+    # Prefer signal-local context/value over global fallback when available.
+    if "discount_rate_pct" in context:
+        discount_pct = float(context.get("discount_rate_pct") or 0.0)
+    elif "discount_rate" in context:
+        raw = float(context.get("discount_rate") or 0.0)
+        discount_pct = raw * 100.0 if raw <= 1.0 else raw
+    elif "DISCOUNT" in code:
+        discount_pct = signal_value * 100.0 if signal_value <= 1.0 else signal_value
+    else:
+        discount_pct = float(money_summary.get("discount_as_pct_revenue", 0.0) or 0.0) * 100.0
+
+    shipping_pct = float(money_summary.get("shipping_as_pct_revenue", 0.0) or 0.0) * 100.0
+    refund_pct = float(money_summary.get("refund_as_pct_revenue", 0.0) or 0.0) * 100.0
+    if "DISCOUNT" in code:
+        return f"This may indicate margin leakage through discounting (~{discount_pct:.1f}% of gross revenue)."
+    if "SHIPPING" in code:
+        return f"This may limit profitable scaling as shipping absorbs roughly {shipping_pct:.1f}% of revenue."
+    if "REFUND" in code:
+        return f"This may reflect post-purchase leakage, with refunds near {refund_pct:.1f}% of revenue."
+    if "CONCENTRATION" in code:
+        return "This suggests over-reliance on a narrow product or channel mix."
+    if "LOW_ORDER_VALUE" in code or "AOV" in code or "BUNDLE" in code:
+        return "This may limit profitable scaling if acquisition costs rise."
+    return ""
+
+
+def _signal_label_and_help(signal_code: str) -> tuple[str, str]:
+    code = (signal_code or "").strip().upper()
+    mapping: dict[str, tuple[str, str]] = {
+        "LOW_REPEAT_MIX": (
+            "Low Repeat Customer Mix",
+            "Share of repeat customers is below target, suggesting weaker retention quality.",
+        ),
+        "SOURCE_CONCENTRATION_RISK": (
+            "Source Concentration Risk",
+            "Revenue dependency on one source/channel is high.",
+        ),
+        "HIGH_DISCOUNT_DEPENDENCY_V2": (
+            "High Discount Dependency",
+            "Sales performance appears heavily tied to discounting.",
+        ),
+        "STACKED_DISCOUNTING": (
+            "Stacked Discounting",
+            "Multiple discount mechanisms may be active at the same time.",
+        ),
+        "VOLUME_DRIVEN_GROWTH": (
+            "Volume-Driven Growth",
+            "Revenue growth is likely coming from volume, not basket value expansion.",
+        ),
+        "HERO_SKU_CONCENTRATION": (
+            "Hero SKU Concentration",
+            "A large share of revenue is concentrated in very few SKUs.",
+        ),
+        "LOW_ORDER_VALUE_PROBLEM": (
+            "Low Order Value Problem",
+            "A high portion of orders are low-value, constraining margin headroom.",
+        ),
+        "FREE_SHIPPING_OPPORTUNITY": (
+            "Free Shipping Opportunity",
+            "Many baskets sit just below free-shipping threshold, indicating AOV lift potential.",
+        ),
+        "BUNDLE_OPPORTUNITY": (
+            "Bundle Opportunity",
+            "Frequent product pairs suggest bundle design opportunity.",
+        ),
+        "DATA_HYGIENE_ISSUE": (
+            "Data Hygiene Issue",
+            "Missing/blank SKU-linked revenue reduces decision reliability.",
+        ),
+        "UNSTABLE_GROWTH": (
+            "Unstable Growth",
+            "Month-to-month revenue swings are elevated.",
+        ),
+        "ELEVATED_REFUND_RATE": (
+            "Elevated Refund Rate",
+            "Refund proportion is above expected operating range.",
+        ),
+        "FREE_SHIPPING_HEAVY": (
+            "Heavy Free Shipping Usage",
+            "Free shipping rate is high and may pressure retained revenue.",
+        ),
+    }
+    if code in mapping:
+        return mapping[code]
+    return code.replace("_", " ").title(), "Signal triggered from current metrics and configured thresholds."
 
 
 for severity in ("high", "medium", "low"):

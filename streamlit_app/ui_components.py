@@ -2,16 +2,31 @@
 
 from __future__ import annotations
 
+import math
+import textwrap
+
 import streamlit as st
+
+
+def fmt_usd(value: float | int | None) -> str:
+    try:
+        v = float(value or 0.0)
+    except Exception:
+        v = 0.0
+    if not math.isfinite(v):
+        v = 0.0
+    return f"${v:,.2f} USD"
 
 
 def apply_saas_theme(current_page: str | None = None) -> None:
     """Apply a lightweight SaaS visual system without touching app logic."""
     st.markdown(
+        '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">',
+        unsafe_allow_html=True,
+    )
+    css = textwrap.dedent(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
         :root {
           --np-bg: #f7f8fb;
           --np-surface: #ffffff;
@@ -48,6 +63,25 @@ def apply_saas_theme(current_page: str | None = None) -> None:
           box-shadow: 0 6px 18px rgba(17, 24, 39, 0.05);
         }
 
+        /* Keep KPI text compact to avoid clipping in narrow columns */
+        [data-testid="stMetricLabel"] {
+          font-size: 0.82rem !important;
+          line-height: 1.2 !important;
+          white-space: normal !important;
+          word-break: break-word !important;
+        }
+
+        [data-testid="stMetricValue"] {
+          font-size: 1.2rem !important;
+          line-height: 1.2 !important;
+        }
+
+        [data-testid="stMetricDelta"] {
+          font-size: 0.78rem !important;
+          white-space: normal !important;
+          word-break: break-word !important;
+        }
+
         .stButton > button {
           border-radius: 10px;
           border: 1px solid var(--np-border);
@@ -80,8 +114,14 @@ def apply_saas_theme(current_page: str | None = None) -> None:
         }
 
         /* Hide Streamlit default multipage nav to avoid duplicate menus */
-        [data-testid="stSidebarNav"] {
+        [data-testid="stSidebarNav"],
+        section[data-testid="stSidebarNav"],
+        div[data-testid="stSidebarNav"],
+        [data-testid="stSidebarNavItems"] {
           display: none;
+          visibility: hidden;
+          height: 0;
+          overflow: hidden;
         }
 
         .np-page-header {
@@ -92,10 +132,25 @@ def apply_saas_theme(current_page: str | None = None) -> None:
           margin-bottom: 10px;
           box-shadow: 0 6px 18px rgba(17, 24, 39, 0.05);
         }
+
+        /* Prevent truncation in bordered cards/containers */
+        [data-testid="stVerticalBlock"] p,
+        [data-testid="stVerticalBlock"] span,
+        [data-testid="stVerticalBlock"] div {
+          overflow-wrap: anywhere;
+        }
+
+        .np-help {
+          color: #6b7280;
+          margin-left: 6px;
+          cursor: pointer;
+          text-decoration: none;
+          font-size: 0.9rem;
+        }
         </style>
-        """,
-        unsafe_allow_html=True,
+        """
     )
+    st.markdown(css, unsafe_allow_html=True)
 
     _render_sidebar_menu(current_page=current_page)
 
