@@ -1,0 +1,15 @@
+# Revenue domain — thresholds live here, not in Python UI code.
+domain: revenue
+rules:
+  - id: revenue_discount_pressure
+    enabled: true
+    require_signals:
+      - HIGH_DISCOUNT_DEPENDENCY
+    match:
+      all:
+        - metric: discount_to_gross_ratio
+          op: ">="
+          value: 0.15
+    insight:
+      narrative_key: revenue_discount_pressure
+      severity: warning

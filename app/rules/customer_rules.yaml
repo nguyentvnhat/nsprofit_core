@@ -1,0 +1,14 @@
+domain: customer
+rules:
+  - id: customer_repeat_thin
+    enabled: true
+    require_signals:
+      - LOW_REPEAT_MIX
+    match:
+      all:
+        - metric: repeat_customer_ratio
+          op: "<"
+          value: 0.08
+    insight:
+      narrative_key: customer_repeat_low
+      severity: info

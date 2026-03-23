@@ -1,0 +1,14 @@
+domain: risk
+rules:
+  - id: refund_stress
+    enabled: true
+    require_signals:
+      - ELEVATED_REFUND_RATE
+    match:
+      all:
+        - metric: order_count
+          op: ">"
+          value: 0
+    insight:
+      narrative_key: risk_refunds
+      severity: warning

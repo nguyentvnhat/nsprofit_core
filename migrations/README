@@ -1,0 +1,6 @@
+Run from the `nosaprofit` directory after setting `NOSAPROFIT_DATABASE_URL`:
+
+  alembic revision --autogenerate -m "init"
+  alembic upgrade head
+
+For the MVP you can also use `python -m app.main init-db`.

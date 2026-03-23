@@ -1,0 +1,14 @@
+# NosaProfit MVP — Python 3.11+
+sqlalchemy>=2.0.0
+pymysql>=1.1.0
+cryptography>=42.0.0
+pandas>=2.1.0
+pyyaml>=6.0.1
+streamlit>=1.31.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv>=1.0.0
+alembic>=1.13.0
+
+# Dev / tests
+pytest>=7.4.0

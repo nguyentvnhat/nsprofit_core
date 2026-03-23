@@ -1,0 +1,14 @@
+domain: product
+rules:
+  - id: product_concentration_rule
+    enabled: true
+    require_signals:
+      - SKU_QUANTITY_CONCENTRATION
+    match:
+      all:
+        - metric: top_sku_quantity_share
+          op: ">="
+          value: 0.55
+    insight:
+      narrative_key: product_concentration
+      severity: info
