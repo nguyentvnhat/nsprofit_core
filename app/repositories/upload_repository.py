@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from sqlalchemy.orm import Session
 
 from app.models.upload import Upload
@@ -20,10 +18,9 @@ class UploadRepository:
         file_type: str = "csv",
         source_type: str = "shopify_csv",
     ) -> Upload:
+        _ = (file_type, source_type)  # kept for API compatibility
         row = Upload(
             file_name=file_name,
-            file_type=file_type,
-            source_type=source_type,
             status="uploaded",
         )
         self._session.add(row)
@@ -46,7 +43,5 @@ class UploadRepository:
             upload.row_count = row_count
         if error_message is not None:
             upload.error_message = error_message
-        if status in ("processed", "failed"):
-            upload.processed_at = datetime.now(timezone.utc).replace(tzinfo=None)
         self._session.flush()
         return upload

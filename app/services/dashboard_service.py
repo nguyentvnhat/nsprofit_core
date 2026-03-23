@@ -116,7 +116,13 @@ def _load_metric_snapshots(session: Session, upload_id: int) -> dict[str, float]
 
 
 def _build_orders_table(session: Session, upload_id: int) -> pd.DataFrame:
-    orders = OrderRepository(session).list_orders_for_upload(upload_id)
+    # Orders table is order-level only, keep it fast by avoiding line-item joins.
+    orders = OrderRepository(session).list_orders_for_upload(
+        upload_id,
+        include_items=False,
+        include_customer=True,
+        limit=5000,
+    )
     rows: list[dict[str, Any]] = []
     for o in orders:
         rows.append(
@@ -156,7 +162,12 @@ def _build_time_series(orders_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
 def _build_products(
     session: Session, upload_id: int
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
-    orders = OrderRepository(session).list_orders_for_upload(upload_id)
+    # Products breakdown needs line items.
+    orders = OrderRepository(session).list_orders_for_upload(
+        upload_id,
+        include_items=True,
+        include_customer=False,
+    )
     rows: list[dict[str, Any]] = []
     for o in orders:
         for li in o.items:

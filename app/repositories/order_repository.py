@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import desc, nulls_last, select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.customer import Customer
@@ -37,29 +37,28 @@ class OrderRepository:
         order_date: datetime | None,
         net_revenue: Decimal | None,
     ) -> Customer | None:
+        _ = (order_date, net_revenue)  # not persisted in legacy customer schema
         if not email:
             return None
         existing = self._session.scalars(select(Customer).where(Customer.email == email).limit(1)).first()
-        net = net_revenue or Decimal("0")
+        first_name: str | None = None
+        last_name: str | None = None
+        if display_name:
+            parts = [p for p in display_name.strip().split(" ") if p]
+            if parts:
+                first_name = parts[0]
+                last_name = " ".join(parts[1:]) or None
         if existing:
-            if display_name and not existing.name:
-                existing.name = display_name
-            if order_date:
-                if existing.first_order_date is None or order_date < existing.first_order_date:
-                    existing.first_order_date = order_date
-                if existing.last_order_date is None or order_date > existing.last_order_date:
-                    existing.last_order_date = order_date
-            existing.total_orders = int(existing.total_orders or 0) + 1
-            existing.total_spent = Decimal(existing.total_spent or 0) + net
+            if first_name and not existing.first_name:
+                existing.first_name = first_name
+            if last_name and not existing.last_name:
+                existing.last_name = last_name
             self._session.flush()
             return existing
         c = Customer(
             email=email,
-            name=display_name,
-            first_order_date=order_date,
-            last_order_date=order_date,
-            total_orders=1,
-            total_spent=net,
+            first_name=first_name,
+            last_name=last_name,
         )
         self._session.add(c)
         self._session.flush()
@@ -75,13 +74,29 @@ class OrderRepository:
             self._session.add(it)
         self._session.flush()
 
-    def list_orders_for_upload(self, upload_id: int) -> list[Order]:
-        stmt = (
-            select(Order)
-            .where(Order.upload_id == upload_id)
-            .options(joinedload(Order.items), joinedload(Order.customer))
-            .order_by(nulls_last(desc(Order.order_date)), Order.id)
-        )
+    def list_orders_for_upload(
+        self,
+        upload_id: int,
+        *,
+        limit: int | None = None,
+        include_items: bool = True,
+        include_customer: bool = True,
+    ) -> list[Order]:
+        stmt = select(Order).where(Order.upload_id == upload_id)
+
+        # Only eager-load what we need for the current use case.
+        if include_items:
+            stmt = stmt.options(joinedload(Order.items))
+        if include_customer:
+            stmt = stmt.options(joinedload(Order.customer))
+
+        # MySQL doesn't support `NULLS LAST` syntax.
+        # We emulate "nulls last" by ordering by `order_date IS NULL` first:
+        #   - False (0) comes before True (1) => nulls last.
+        stmt = stmt.order_by(Order.order_date.is_(None), desc(Order.order_date), Order.id)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+
         return list(self._session.scalars(stmt).unique().all())
 
     def delete_normalized_for_upload(self, upload_id: int) -> None:
