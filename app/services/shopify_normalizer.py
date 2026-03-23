@@ -26,11 +26,14 @@ class NormalizedLineItem:
     unit_price: float | None
     line_total: float | None
     variant_title: str | None = None
+    vendor: str | None = None
 
 
 @dataclass
 class NormalizedOrder:
     external_name: str
+    shopify_order_id: str | None
+    shipping_country: str | None
     financial_status: str | None
     fulfillment_status: str | None
     currency: str | None
@@ -97,6 +100,7 @@ def normalize_shopify_rows(rows: list[dict]) -> list[NormalizedOrder]:
             sku = _get(r, "Lineitem sku", "LineItem sku")
             unit_price = to_float(_get(r, "Lineitem price", "LineItem price"))
             variant = _get(r, "Lineitem variant", "LineItem variant")
+            vend = _get(r, "Lineitem vendor", "LineItem vendor")
             if qty == 0 and not title and not sku:
                 continue
             line_total = None
@@ -111,6 +115,7 @@ def normalize_shopify_rows(rows: list[dict]) -> list[NormalizedOrder]:
                     unit_price=unit_price,
                     line_total=line_total,
                     variant_title=str(variant).strip() if variant else None,
+                    vendor=str(vend).strip() if vend else None,
                 )
             )
 
@@ -142,10 +147,16 @@ def normalize_shopify_rows(rows: list[dict]) -> list[NormalizedOrder]:
             )
 
         processed_at = parse_shopify_datetime(_get(header, "Created at", "Paid at"))
+        oid = _get(header, "Id")
+        shopify_order_id = str(oid).strip() if oid not in (None, "") else None
+        ship_ctry = _get(header, "Shipping Country", "Billing Country")
+        shipping_country = str(ship_ctry).strip() if ship_ctry else None
 
         out.append(
             NormalizedOrder(
                 external_name=name,
+                shopify_order_id=shopify_order_id,
+                shipping_country=shipping_country,
                 financial_status=str(_get(header, "Financial Status") or "").strip()
                 or None,
                 fulfillment_status=str(_get(header, "Fulfillment Status") or "").strip()

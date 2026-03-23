@@ -25,5 +25,5 @@ if dto is None:
     st.warning("Select or process an upload from **Home**.")
     st.stop()
 
-risk = [s for s in dto.signals if s.get("domain") == "risk"]
+risk = [s for s in dto.signals if s.get("entity_type") == "risk"]
 st.dataframe(pd.DataFrame(risk), use_container_width=True)

@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.upload import Upload
 from app.repositories import InsightRepository, OrderRepository, UploadRepository
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.signal_repository import SignalRepository
@@ -16,7 +18,7 @@ from app.repositories.signal_repository import SignalRepository
 @dataclass
 class OverviewDTO:
     upload_id: int
-    filename: str
+    file_name: str
     status: str
     kpis: dict[str, float]
     orders_sample: pd.DataFrame
@@ -25,12 +27,6 @@ class OverviewDTO:
 
 
 def _latest_upload_id(session: Session) -> int | None:
-    # Simple MVP: highest id wins; replace with tenant + created_at filter later.
-    repo = UploadRepository(session)
-    from sqlalchemy import select
-
-    from app.models.upload import Upload
-
     uid = session.scalars(select(Upload.id).order_by(Upload.id.desc()).limit(1)).first()
     return int(uid) if uid is not None else None
 
@@ -47,8 +43,13 @@ def get_overview(session: Session, upload_id: int | None = None) -> OverviewDTO 
     m_repo = MetricRepository(session)
     snapshots: dict[str, float] = {}
     for s in m_repo.list_for_upload(uid):
-        if s.dimension_key is None and s.value_numeric is not None:
-            snapshots[s.metric_key] = float(s.value_numeric)
+        if (
+            s.metric_scope == "overall"
+            and s.period_type == "all_time"
+            and s.dimension_1 is None
+            and s.dimension_2 is None
+        ):
+            snapshots[s.metric_code] = float(s.metric_value)
 
     o_repo = OrderRepository(session)
     orders = o_repo.list_orders_for_upload(uid)
@@ -56,13 +57,13 @@ def get_overview(session: Session, upload_id: int | None = None) -> OverviewDTO 
     for o in orders[:500]:
         rows.append(
             {
-                "order": o.external_name,
+                "order": o.order_name,
                 "net_revenue": float(o.net_revenue or 0),
-                "total": float(o.total_amount or 0),
+                "total": float(o.total_price or 0),
                 "discount": float(o.discount_amount or 0),
                 "qty": int(o.total_quantity or 0),
                 "customer": o.customer.email if o.customer else None,
-                "processed_at": o.processed_at,
+                "order_date": o.order_date,
             }
         )
     orders_df = pd.DataFrame(rows)
@@ -70,25 +71,31 @@ def get_overview(session: Session, upload_id: int | None = None) -> OverviewDTO 
     i_repo = InsightRepository(session)
     insights = [
         {
-            "rule_id": i.rule_id,
+            "insight_code": i.insight_code,
+            "category": i.category,
+            "priority": i.priority,
             "title": i.title,
             "summary": i.summary,
-            "implication": i.implication,
-            "action": i.action,
-            "severity": i.severity,
+            "implication_text": i.implication_text,
+            "recommended_action": i.recommended_action,
         }
         for i in i_repo.list_for_upload(uid)
     ]
 
     s_repo = SignalRepository(session)
     signals = [
-        {"domain": s.domain, "code": s.code, "severity": s.severity, "payload": s.payload or {}}
+        {
+            "entity_type": s.entity_type,
+            "signal_code": s.signal_code,
+            "severity": s.severity,
+            "context": s.signal_context_json or {},
+        }
         for s in s_repo.list_for_upload(uid)
     ]
 
     return OverviewDTO(
         upload_id=uid,
-        filename=upload.filename,
+        file_name=upload.file_name,
         status=upload.status,
         kpis=snapshots,
         orders_sample=orders_df,
@@ -106,10 +113,10 @@ def get_product_breakdown(session: Session, upload_id: int) -> pd.DataFrame:
             rows.append(
                 {
                     "sku": li.sku,
-                    "title": li.title,
+                    "product_name": li.product_name,
                     "quantity": li.quantity,
                     "line_total": float(li.line_total or 0),
-                    "order": o.external_name,
+                    "order": o.order_name,
                 }
             )
     return pd.DataFrame(rows)
@@ -131,13 +138,9 @@ def get_customer_breakdown(session: Session, upload_id: int) -> pd.DataFrame:
 
 
 def list_uploads(session: Session, limit: int = 50) -> list[dict[str, Any]]:
-    from sqlalchemy import select
-
-    from app.models.upload import Upload
-
     stmt = select(Upload).order_by(Upload.id.desc()).limit(limit)
     ups = session.scalars(stmt).all()
     return [
-        {"id": u.id, "filename": u.filename, "status": u.status, "row_count": u.row_count}
+        {"id": u.id, "file_name": u.file_name, "status": u.status, "row_count": u.row_count}
         for u in ups
     ]

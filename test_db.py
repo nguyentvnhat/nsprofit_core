@@ -1,29 +1,52 @@
-"""Smoke-test DB URL + create tables. Run from `nosaprofit/` with venv + deps."""
+"""Validate DB URL, import all models, and create tables."""
 
 from __future__ import annotations
 
 import sys
+import traceback
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from sqlalchemy import text
+try:
+    from app import models  # noqa: F401 — register mappers
+    from app.database import get_engine
+    from app.models import (
+        Base,
+        Customer,
+        Insight,
+        MetricSnapshot,
+        Order,
+        OrderItem,
+        RawOrder,
+        RuleDefinition,
+        SignalEvent,
+        Upload,
+    )
 
-from app.database import get_engine, init_db
+    _ = (
+        Upload,
+        RawOrder,
+        Customer,
+        Order,
+        OrderItem,
+        MetricSnapshot,
+        SignalEvent,
+        Insight,
+        RuleDefinition,
+    )
 
+    from sqlalchemy import text
 
-def main() -> None:
-    init_db()
-    with get_engine().connect() as conn:
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
-    print("DB connected & tables created (init_db)")
 
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:  # noqa: BLE001 — script boundary
-        print(f"DB check failed: {exc}", file=sys.stderr)
-        sys.exit(1)
+    print("Success: connected to MySQL and created all tables (Base.metadata.create_all).")
+except Exception as exc:  # noqa: BLE001
+    print("Database setup failed:", exc, file=sys.stderr)
+    traceback.print_exc()
+    sys.exit(1)

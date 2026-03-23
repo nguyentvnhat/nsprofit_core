@@ -4,33 +4,26 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 from app.models.metric_snapshot import MetricSnapshot
 from app.repositories.order_repository import OrderRepository
 
+from app.services.metrics_engine.snapshots import build_snapshot
+
 
 def collect(session: Session, upload_id: int) -> Sequence[MetricSnapshot]:
     repo = OrderRepository(session)
     orders = repo.list_orders_for_upload(upload_id)
-    qty_by_sku: dict[str, float] = defaultdict(float)
-    revenue_by_sku: dict[str, float] = defaultdict(float)
+    qty_by_sku: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for o in orders:
         for li in o.items:
-            key = li.sku or li.title or "UNKNOWN"
-            qty_by_sku[key] += float(li.quantity or 0)
-            revenue_by_sku[key] += float(li.line_total or 0)
+            key = li.sku or li.product_name or "UNKNOWN"
+            qty_by_sku[key] += Decimal(li.quantity or 0)
 
-    total_qty = sum(qty_by_sku.values()) or 1.0
-    top_share = max(qty_by_sku.values(), default=0) / total_qty
+    total_qty = sum(qty_by_sku.values(), start=Decimal("0")) or Decimal("1")
+    top_share = max(qty_by_sku.values(), default=Decimal("0")) / total_qty
 
-    return [
-        MetricSnapshot(
-            upload_id=upload_id,
-            metric_key="top_sku_quantity_share",
-            dimension_key=None,
-            value_numeric=float(top_share),
-            value_json={"qty_by_sku": dict(qty_by_sku), "revenue_by_sku": dict(revenue_by_sku)},
-        )
-    ]
+    return [build_snapshot(upload_id, "top_sku_quantity_share", top_share)]
