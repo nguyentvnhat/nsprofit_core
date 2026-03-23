@@ -1,4 +1,4 @@
-"""Overview KPIs and sample order table."""
+"""Overview page: KPI cards and high-level trend charts."""
 
 from __future__ import annotations
 
@@ -13,41 +13,46 @@ import pandas as pd
 import streamlit as st
 
 from app.database import session_scope
-from app.services.dashboard_service import get_overview
+from app.services.dashboard_service import get_dashboard_data
 
 st.set_page_config(page_title="Overview — NosaProfit", layout="wide")
 st.header("Overview")
 
 uid = st.session_state.get("active_upload_id")
-with session_scope() as session:
-    dto = get_overview(session, upload_id=uid)
-
-if dto is None:
-    st.warning("Select or process an upload from **Home**.")
-    st.stop()
+dashboard = st.session_state.get("dashboard_data")
+if dashboard is None or dashboard.upload_id != uid:
+    if uid is None:
+        st.warning("Select or process an upload from `Home`.")
+        st.stop()
+    try:
+        with session_scope() as session:
+            dashboard = get_dashboard_data(session, upload_id=uid)
+        st.session_state["dashboard_data"] = dashboard
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"Could not load dashboard data: {exc}")
+        st.stop()
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Net revenue", f"{dto.kpis.get('net_revenue_total', 0):,.2f}")
-c2.metric("Orders", f"{int(dto.kpis.get('order_count', 0))}")
-c3.metric("AOV (net)", f"{dto.kpis.get('average_order_value_net', 0):,.2f}")
-c4.metric("Discount / gross", f"{dto.kpis.get('discount_to_gross_ratio', 0) * 100:.1f}%")
+c1.metric("Total revenue", f"{dashboard.kpis.get('total_revenue', 0):,.2f}")
+c2.metric("Net revenue", f"{dashboard.kpis.get('net_revenue', 0):,.2f}")
+c3.metric("AOV", f"{dashboard.kpis.get('aov', 0):,.2f}")
+c4.metric("Total orders", f"{int(dashboard.kpis.get('total_orders', 0)):,}")
 
-st.subheader("Revenue mix (snapshot)")
-mix = pd.DataFrame(
-    {
-        "bucket": ["Net revenue", "Gross revenue", "Discounts", "Refunds"],
-        "amount": [
-            dto.kpis.get("net_revenue_total", 0),
-            dto.kpis.get("gross_revenue_total", 0),
-            dto.kpis.get("discount_total", 0),
-            dto.kpis.get("refund_total", 0),
-        ],
-    }
-).set_index("bucket")
-st.bar_chart(mix)
+left, right = st.columns(2)
+with left:
+    st.subheader("Revenue over time")
+    if dashboard.revenue_over_time.empty:
+        st.info("No revenue timeseries available.")
+    else:
+        st.line_chart(dashboard.revenue_over_time)
 
-st.subheader("Recent orders (sample)")
-st.dataframe(dto.orders_sample, use_container_width=True)
+with right:
+    st.subheader("Order count over time")
+    if dashboard.orders_over_time.empty:
+        st.info("No order-count timeseries available.")
+    else:
+        st.bar_chart(dashboard.orders_over_time)
 
-st.subheader("Signals")
-st.dataframe(dto.signals, use_container_width=True)
+st.subheader("Recent orders")
+preview = dashboard.orders_table.head(200) if isinstance(dashboard.orders_table, pd.DataFrame) else pd.DataFrame()
+st.dataframe(preview, use_container_width=True, height=360)
