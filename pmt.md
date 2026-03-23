@@ -737,3 +737,54 @@ The generated code must:
 - be migration-friendly
 - support future expansion
 - preserve the project architecture already created
+
+
+#PROMPT 3
+
+You are a senior Python data engineer.
+
+Continue the NosaProfit project in the CURRENT FOLDER.
+
+Your task is to implement a robust Shopify CSV parser service.
+
+---
+
+# 🎯 GOAL
+
+Build a production-minded CSV parser that:
+
+1. Reads Shopify order export CSV files
+2. Handles messy real-world data safely
+3. Validates required structure
+4. Normalizes column naming inconsistencies
+5. Returns structured raw rows for normalization layer
+6. Supports large files
+7. Is reusable and testable
+
+---
+
+# 📂 TARGET FILE
+
+app/services/file_parser.py
+
+---
+
+# 🧠 CONTEXT
+
+Shopify order export CSV:
+- Each row = 1 line item
+- Same order appears multiple times
+- Many columns (40–100+)
+- Column names can vary slightly depending on export
+- Some fields may be missing or empty
+
+---
+
+# ⚙️ REQUIREMENTS
+
+## 1. Main function
+
+Implement:
+
+```python
+def parse_shopify_csv(file_path: str) -> list[dict]:
