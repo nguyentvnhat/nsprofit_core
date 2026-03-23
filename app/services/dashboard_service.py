@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 import pandas as pd
@@ -15,6 +16,8 @@ from app.repositories import InsightRepository, OrderRepository, UploadRepositor
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.signal_repository import SignalRepository
 from app.services.pipeline import process_shopify_csv
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -75,6 +78,15 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
     customer_summary, top_customers = _build_customers(orders_df)
     signals_by_severity = _build_signals(session, uid)
     insights = _build_insights(session, uid)
+    logger.debug(
+        "Dashboard payload built upload_id=%s metrics=%s signals(high/med/low)=(%s/%s/%s) insights=%s",
+        uid,
+        len(metrics_map),
+        len(signals_by_severity.get("high", [])),
+        len(signals_by_severity.get("medium", [])),
+        len(signals_by_severity.get("low", [])),
+        len(insights),
+    )
 
     fallback_kpis = _kpis_from_orders(orders_df)
     kpis = {
@@ -277,12 +289,20 @@ def _build_signals(session: Session, upload_id: int) -> dict[str, list[dict[str,
 
 
 def _build_insights(session: Session, upload_id: int) -> list[dict[str, Any]]:
+    def normalize_priority(raw: str | None) -> str:
+        p = (raw or "").strip().lower()
+        if p == "high":
+            return "high"
+        if p in {"medium", "normal"}:
+            return "medium"
+        return "low"
+
     rows = InsightRepository(session).list_for_upload(upload_id)
     return [
         {
             "insight_code": i.insight_code,
             "category": i.category,
-            "priority": i.priority,
+            "priority": normalize_priority(i.priority),
             "title": i.title,
             "summary": i.summary,
             "implication": i.implication_text,

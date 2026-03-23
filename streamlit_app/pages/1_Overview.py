@@ -24,7 +24,7 @@ def _priority_badge(priority: str) -> str:
     p = (priority or "low").strip().lower()
     if p == "high":
         return "🔴 High"
-    if p == "medium":
+    if p in {"medium", "normal"}:
         return "🟠 Medium"
     return "🟢 Low"
 

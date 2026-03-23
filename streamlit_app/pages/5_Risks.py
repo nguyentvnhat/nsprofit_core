@@ -69,8 +69,36 @@ def _render_risk_card(item: dict) -> None:
         c2.write(f"Threshold value: `{threshold_value:,.2f}`")
         st.write(f"Entity: `{entity_type}` / `{entity_key_text}`")
         if context:
-            with st.expander("Context details"):
-                st.json(context)
+            with st.expander("Business context"):
+                labels: dict[str, str] = {
+                    "active": "Triggered",
+                    "top_source_share": "Top source share",
+                    "discount_rate": "Discount rate",
+                    "low_value_order_ratio": "Low-value order ratio",
+                    "orders_near_free_shipping_threshold": "Near free-shipping threshold ratio",
+                    "revenue_growth": "Revenue growth",
+                    "aov_growth": "AOV growth",
+                    "max_abs_mom_revenue_growth": "Max month-over-month revenue swing",
+                    "blank_sku_revenue": "Revenue with missing SKU",
+                    "compare_at_discount_total": "Compare-at discount total",
+                    "discount_amount_total": "Discount amount total",
+                    "max_pair_count": "Top bundle pair count",
+                    "bundle_pairs_count": "Bundle pair combinations",
+                    "months_observed": "Months observed",
+                    "refund_rate_pct": "Refund rate (%)",
+                    "free_shipping_rate_pct": "Free shipping rate (%)",
+                    "repeat_customer_rate_pct": "Repeat customer rate (%)",
+                    "top_customer_revenue_share_pct": "Top customer revenue share (%)",
+                }
+                for key, value in context.items():
+                    label = labels.get(str(key), str(key).replace("_", " ").title())
+                    if isinstance(value, bool):
+                        text_value = "Yes" if value else "No"
+                    elif isinstance(value, (int, float)):
+                        text_value = f"{value:,.2f}"
+                    else:
+                        text_value = str(value)
+                    st.write(f"**{label}:** {text_value}")
 
 
 for severity in ("high", "medium", "low"):

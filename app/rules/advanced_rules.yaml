@@ -1,0 +1,130 @@
+rules:
+  - rule_code: discount_dependency_risk
+    category: pricing
+    severity: high
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: HIGH_DISCOUNT_DEPENDENCY_V2
+    title_template: "Discount becoming default sales mechanism"
+    summary_template: "Discount rate is elevated and conversion appears promotion-dependent."
+    implication_template: "Margin quality and pricing power may weaken over time."
+    action_template: "Tighten discount guardrails and test non-price conversion levers."
+
+  - rule_code: double_discounting_issue
+    category: pricing
+    severity: high
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: STACKED_DISCOUNTING
+    title_template: "Stacked discounting is reducing realized price"
+    summary_template: "Compare-at markdowns and order discounts are active together."
+    implication_template: "Net price capture declines faster than expected."
+    action_template: "Prevent overlapping promo layers and enforce a single primary offer rule."
+
+  - rule_code: low_quality_growth
+    category: growth_quality
+    severity: high
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: VOLUME_DRIVEN_GROWTH
+    title_template: "Revenue growth driven by volume, not value"
+    summary_template: "Revenue is up while average order value is flat or down."
+    implication_template: "Operational load grows without equivalent basket-quality improvement."
+    action_template: "Prioritize AOV levers: bundles, threshold offers, and targeted upsell flows."
+
+  - rule_code: sku_concentration_risk
+    category: product_mix
+    severity: high
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: HERO_SKU_CONCENTRATION
+    title_template: "Over-reliance on a single product"
+    summary_template: "A high share of revenue is concentrated in a small SKU set."
+    implication_template: "Stock, demand, or price shocks in hero SKUs can materially impact topline."
+    action_template: "Diversify demand toward mid-tail SKUs via bundles and merchandising."
+
+  - rule_code: aov_structure_issue
+    category: basket
+    severity: high
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: LOW_ORDER_VALUE_PROBLEM
+    title_template: "Order value structure is limiting growth"
+    summary_template: "A large share of orders falls in low-value baskets."
+    implication_template: "Acquisition efficiency and contribution margin are under pressure."
+    action_template: "Redesign basket architecture with add-ons and minimum-spend incentives."
+
+  - rule_code: free_shipping_optimization_opportunity
+    category: pricing_lever
+    severity: medium
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: FREE_SHIPPING_OPPORTUNITY
+    title_template: "Missed opportunity to increase AOV via shipping threshold"
+    summary_template: "Many baskets cluster just below the free-shipping threshold."
+    implication_template: "Small nudges can likely move orders into higher-value ranges."
+    action_template: "Add threshold nudges and test threshold placement by segment."
+
+  - rule_code: channel_dependency_risk
+    category: channel_risk
+    severity: high
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: SOURCE_CONCENTRATION_RISK
+    title_template: "Revenue is highly dependent on one channel"
+    summary_template: "The top source contributes a dominant share of total revenue."
+    implication_template: "Channel volatility can create immediate revenue shocks."
+    action_template: "Diversify source mix and build secondary demand channels."
+
+  - rule_code: bundle_revenue_opportunity
+    category: product_strategy
+    severity: medium
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: BUNDLE_OPPORTUNITY
+    title_template: "Bundle opportunity detected from repeat pair behavior"
+    summary_template: "Frequent product pairs indicate potential for bundle-led conversion lift."
+    implication_template: "Current attach behavior may be under-monetized."
+    action_template: "Launch bundle tests on top pairs and track attach rate and margin."
+
+  - rule_code: data_quality_issue
+    category: data_quality
+    severity: medium
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: DATA_HYGIENE_ISSUE
+    title_template: "Product data quality issue detected"
+    summary_template: "Revenue is associated with missing or blank SKU records."
+    implication_template: "SKU-level analytics and inventory decisions may be biased."
+    action_template: "Backfill SKU gaps and enforce identifier completeness upstream."
+
+  - rule_code: revenue_instability
+    category: growth_volatility
+    severity: medium
+    enabled: true
+    condition:
+      all:
+        - type: signal
+          signal_code: UNSTABLE_GROWTH
+    title_template: "Revenue trajectory is unstable"
+    summary_template: "Month-to-month revenue swings are elevated."
+    implication_template: "Forecast confidence, inventory planning, and cash control are at risk."
+    action_template: "Stabilize demand cadence and smooth source mix volatility."
