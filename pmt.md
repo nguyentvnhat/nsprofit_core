@@ -1349,3 +1349,410 @@ Return:
 1. all Streamlit files
 2. dashboard_service.py (if not exists)
 3. clean, production-ready code
+
+
+
+#Propmt #9 - Advances metrics
+You are a senior data engineer building a Shopify revenue analytics engine.
+
+Extend the existing metrics engine to compute ADVANCED METRICS required for business insights.
+
+Input:
+- orders
+- line_items
+- customers
+
+Output:
+Return a dictionary with these additional metrics:
+
+1. monthly_revenue: dict[month → revenue]
+2. monthly_orders: dict[month → order count]
+3. monthly_aov: dict[month → AOV]
+
+4. top_sku_revenue_share:
+   - revenue of top SKU / total revenue
+
+5. sku_revenue_distribution:
+   - dict[sku → revenue]
+
+6. order_value_distribution:
+   - buckets:
+     <25, 25–50, 50–100, 100–200, >200
+
+7. low_value_order_ratio:
+   - % orders < 50
+
+8. discount_amount_total
+9. discount_rate:
+   - total discount / gross revenue
+
+10. compare_at_discount_total:
+   - sum(compare_at_price - price)
+
+11. bundle_pairs:
+   - top 10 product pairs bought together
+   - format: [(sku1, sku2, count)]
+
+12. source_revenue_distribution:
+   - dict[source → revenue]
+
+13. top_source_share:
+   - highest source revenue %
+
+14. blank_sku_revenue:
+   - revenue from line items with empty SKU
+
+15. orders_near_free_shipping_threshold:
+   - % orders within 10% below threshold (assume threshold = 60)
+
+16. revenue_growth:
+   - last month vs previous
+
+17. aov_growth:
+   - last month vs previous
+
+Requirements:
+- clean Python
+- no external API
+- handle missing data safely
+- modular functions
+
+
+#############################################################
+#Prompt 10 - signal engine improvements
+You are a revenue intelligence system.
+
+Using the advanced metrics, generate SIGNALS (structured patterns, not insights yet).
+
+Input:
+- metrics dict
+
+Output:
+Return a dict of boolean or numeric signals:
+
+Signals to implement:
+
+1. high_discount_dependency:
+   discount_rate > 0.2
+
+2. stacked_discounting:
+   compare_at_discount_total > 0 AND discount_amount_total > 0
+
+3. volume_driven_growth:
+   revenue_growth > 0 AND aov_growth <= 0
+
+4. hero_sku_concentration:
+   top_sku_revenue_share > 0.4
+
+5. low_order_value_problem:
+   low_value_order_ratio > 0.5
+
+6. free_shipping_opportunity:
+   orders_near_free_shipping_threshold > 0.3
+
+7. source_concentration_risk:
+   top_source_share > 0.7
+
+8. bundle_opportunity:
+   at least one pair count > threshold
+
+9. data_hygiene_issue:
+   blank_sku_revenue > 0
+
+10. unstable_growth:
+   revenue fluctuates significantly month-to-month
+
+Requirements:
+- return structured signals
+- do NOT generate human text
+- pure logic only
+
+#prompt 11 rule engine - not 
+You are a Shopify revenue strategist.
+
+Convert signals into BUSINESS RULE FLAGS.
+
+Input:
+- signals dict
+
+Output:
+Return list of triggered rules:
+
+Rules:
+
+- if high_discount_dependency:
+  "discount_dependency_risk"
+
+- if stacked_discounting:
+  "double_discounting_issue"
+
+- if volume_driven_growth:
+  "low_quality_growth"
+
+- if hero_sku_concentration:
+  "sku_concentration_risk"
+
+- if low_order_value_problem:
+  "aov_structure_issue"
+
+- if free_shipping_opportunity:
+  "free_shipping_optimization_opportunity"
+
+- if source_concentration_risk:
+  "channel_dependency_risk"
+
+- if bundle_opportunity:
+  "bundle_revenue_opportunity"
+
+- if data_hygiene_issue:
+  "data_quality_issue"
+
+- if unstable_growth:
+  "revenue_instability"
+
+Requirements:
+- deterministic mapping
+- no explanation
+
+#prompt 12 - insight engine - not
+
+You are a Head of Revenue analyzing a Shopify store.
+
+Generate BUSINESS INSIGHTS from rules.
+
+Input:
+- rules list
+- metrics
+
+Output:
+Return list of insights:
+
+Each insight must include:
+
+- title
+- summary (clear, non-technical)
+- implication (why it matters)
+- action (what to do)
+- priority (high/medium/low)
+
+Tone:
+- operator mindset
+- concise
+- actionable
+- no fluff
+
+Examples:
+
+discount_dependency_risk:
+Title: Discount becoming default sales mechanism
+
+low_quality_growth:
+Title: Revenue growth driven by volume, not value
+
+sku_concentration_risk:
+Title: Over-reliance on a single product
+
+aov_structure_issue:
+Title: Order value structure is limiting growth
+
+free_shipping_optimization_opportunity:
+Title: Missed opportunity to increase AOV via shipping threshold
+
+Requirements:
+- max 10 insights
+- prioritize highest impact
+- avoid generic statements
+ 
+
+###################################
+#Prompt 13
+You are a senior Streamlit product engineer.
+
+Continue the current NosaProfit project using the EXISTING CODEBASE.
+
+IMPORTANT:
+- Reuse the existing DashboardData returned by get_dashboard_data()
+- Do NOT change architecture
+- Do NOT add business logic in Streamlit
+- Keep code directly runnable
+- Use existing session handling with active_upload_id and dashboard_data cache
+
+FILE TO MODIFY:
+streamlit_app/pages/1_Overview.py
+
+GOAL:
+Turn the current Overview page from a basic KPI + chart page into an executive summary page for a Shopify revenue intelligence product.
+
+REQUIREMENTS:
+1. Keep the current KPI row:
+   - total_revenue
+   - net_revenue
+   - aov
+   - total_orders
+
+2. Keep the current revenue and order trend charts.
+
+3. Remove the "Recent orders" table from the main focus area and place it at the bottom inside an expander called "Recent orders preview".
+
+4. Add a new section: "Top insights"
+   - Show up to 3 insights from dashboard.insights
+   - Render each as a card with:
+     - title
+     - priority badge
+     - summary
+     - implication
+     - action
+
+5. Add a new section: "Top risks"
+   - Read dashboard.signals_by_severity
+   - Show 3 summary metrics:
+     - High risks
+     - Medium risks
+     - Low risks
+   - Under that, show up to 2 high-severity items as compact cards with:
+     - signal_code
+     - signal_value
+     - threshold_value
+     - entity_type
+     - entity_key
+
+6. Add a new section: "Recommended actions"
+   - Extract the action field from the first 3 insights that have actions
+   - Show them as a numbered action list
+
+7. Handle empty insights and empty risks gracefully.
+
+8. Keep the page executive-friendly, concise, and product-like rather than debug-like.
+
+
+###################################
+ #Prompt 14 
+ You are a senior Streamlit product engineer.
+
+Continue the current NosaProfit project using the EXISTING CODEBASE.
+
+IMPORTANT:
+- Reuse existing dashboard_service.py and DashboardData
+- Do NOT add business logic
+- Keep code directly runnable
+
+FILE TO MODIFY:
+streamlit_app/pages/5_Risks.py
+
+GOAL:
+Upgrade the Risks page from a raw dataframe view into a business-friendly risk dashboard.
+
+REQUIREMENTS:
+1. Keep the page title "Risks".
+
+2. At the top, render 3 KPI metrics:
+   - High severity count
+   - Medium severity count
+   - Low severity count
+
+3. For each severity group (high, medium, low):
+   - Show a section header
+   - If empty, show a simple info message
+   - Otherwise render each signal as a bordered card, not only a dataframe
+
+4. Each risk card must show:
+   - signal_code
+   - observed value (signal_value)
+   - threshold value
+   - entity type / entity key if available
+   - context JSON inside an expander if present
+
+5. Also keep a raw dataframe version inside an expander named:
+   - "Show raw table"
+
+6. Use severity-specific visual cues:
+   - high = error/warning style
+   - medium = warning/info style
+   - low = neutral/success style
+
+7. Keep the page readable for non-technical business users.
+
+
+######################################################
+#Prompt 15
+You are a senior Streamlit product engineer.
+
+Continue the current NosaProfit project using the EXISTING CODEBASE.
+
+IMPORTANT:
+- Reuse existing DashboardData from get_dashboard_data()
+- Do NOT add business logic into Streamlit
+- Keep code directly runnable
+
+FILE TO MODIFY:
+streamlit_app/pages/3_Products.py
+
+GOAL:
+Upgrade the Products page so it feels like a revenue intelligence view, not only a product table.
+
+REQUIREMENTS:
+1. Keep the existing "Top products" table.
+2. Keep the existing "Top 3 SKU share" metric.
+3. Keep the existing "Revenue by SKU" bar chart.
+
+4. Add a new "Product concentration" section:
+   - show a short interpretation based on dashboard.top_3_sku_share
+   - example:
+     - if very high, warn about concentration risk
+     - if moderate, mention balanced mix
+   - keep this lightweight and derived only from existing values
+
+5. Add a new "Top product notes" section:
+   - show top 5 products from dashboard.products_table
+   - render compact cards or rows with main product fields
+
+6. If dashboard.products_table contains missing or blank SKU-like values, show a warning message.
+
+7. Put the raw table into the main area, but make the right side feel like a decision-support sidebar.
+
+8. Keep the page polished and business-friendly.
+
+#####################################
+#Prompt 16
+You are a senior Streamlit product engineer.
+
+Continue the current NosaProfit project using the EXISTING CODEBASE.
+
+IMPORTANT:
+- Reuse existing DashboardData and insights payload
+- Do NOT add business logic
+- Keep code directly runnable
+
+FILE TO MODIFY:
+streamlit_app/pages/6_Insights.py
+
+GOAL:
+Improve the Insights page so priorities are clearer and more executive-friendly.
+
+REQUIREMENTS:
+1. Group insights into sections:
+   - High Priority
+   - Medium Priority
+   - Low Priority
+
+2. Treat both "normal" and "medium" as Medium for display.
+
+3. Each insight card must show:
+   - title
+   - priority badge
+   - category
+   - summary
+   - implication
+   - action
+
+4. Within each section, keep existing bordered card style.
+
+5. Add a compact summary row at the top:
+   - total insights
+   - high priority count
+   - medium priority count
+   - low priority count
+
+6. Handle empty groups gracefully.
+
+7. Keep the page concise and polished.

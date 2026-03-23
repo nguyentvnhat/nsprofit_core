@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from io import BytesIO
 from typing import BinaryIO
@@ -28,13 +29,15 @@ from app.services.shopify_normalizer import normalize_shopify_data
 from app.services.signal_engine import run_all_signals, signal_codes
 from app.services.signal_engine.types import Signal
 
+logger = logging.getLogger(__name__)
+
 
 def _priority_for_severity(severity: str) -> str:
     s = (severity or "").strip().lower()
     if s in {"high", "critical", "warning"}:
         return "high"
     if s in {"medium", "moderate"}:
-        return "normal"
+        return "medium"
     return "low"
 
 
@@ -143,6 +146,11 @@ def process_shopify_csv(
             order_items=items_data,
             customers=customers_data,
         )
+        logger.debug(
+            "Metrics computed for upload_id=%s domains=%s",
+            upload.id,
+            sorted(metrics.keys()),
+        )
         snapshots: list[MetricSnapshot] = []
         for scope, values in metrics.items():
             for code, value in values.items():
@@ -163,12 +171,19 @@ def process_shopify_csv(
         metric_map = metrics_as_flat_dict(metrics)
 
         drafts = run_all_signals(metrics)
+        logger.debug("Signals computed for upload_id=%s count=%s", upload.id, len(drafts))
         events = [_signal_event_from_draft(upload.id, d) for d in drafts]
         signal_repo.replace_for_upload(upload.id, events)
 
         codes = signal_codes(drafts)
         payloads = evaluate_rules(metric_map, codes)
         narrated = narrate_all(payloads)
+        logger.debug(
+            "Rules/insights generated for upload_id=%s rules=%s insights=%s",
+            upload.id,
+            len(payloads),
+            len(narrated),
+        )
         insights = [
             Insight(
                 upload_id=upload.id,

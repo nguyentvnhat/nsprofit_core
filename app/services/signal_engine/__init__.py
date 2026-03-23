@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from app.services.signal_engine import customer_signals, product_signals, revenue_signals, risk_signals
+from app.services.signal_engine import (
+    advanced_signals,
+    customer_signals,
+    product_signals,
+    revenue_signals,
+    risk_signals,
+)
 from app.services.signal_engine.types import Signal
 
 SignalCollector = Callable[[dict[str, dict[str, Any]]], Sequence[Signal]]
@@ -15,6 +21,7 @@ SIGNAL_COLLECTORS: tuple[SignalCollector, ...] = (
     product_signals.collect,
     customer_signals.collect,
     risk_signals.collect,
+    advanced_signals.collect,
 )
 
 

@@ -15,6 +15,7 @@ from app.services.metrics_engine.order_metrics import (
     OrderMetricConfig,
     compute_order_metrics,
 )
+from app.services.metrics_engine.advanced_metrics import compute_advanced_metrics
 from app.services.metrics_engine.product_metrics import compute_product_metrics
 from app.services.metrics_engine.revenue_metrics import compute_revenue_metrics
 
@@ -42,11 +43,13 @@ def compute_metrics(
     order_quality = compute_order_metrics(orders, config=order_cfg)
     products = compute_product_metrics(orders, order_items)
     customer = compute_customer_metrics(orders, customers)
+    advanced = compute_advanced_metrics(orders, order_items)
     return {
         "revenue": revenue,
         "orders": order_quality,
         "products": products,
         "customers": customer,
+        "advanced": advanced,
     }
 
 

@@ -36,6 +36,7 @@ class NormalizedLineItem:
     quantity: int
     unit_price: float | None
     line_total: float | None
+    compare_at_price: float | None = None
     variant_title: str | None = None
     vendor: str | None = None
 
@@ -119,6 +120,14 @@ def normalize_shopify_rows(rows: list[dict[str, Any]]) -> list[NormalizedOrder]:
             title = _get(r, "Lineitem name", "LineItem name")
             sku = _get(r, "Lineitem sku", "LineItem sku")
             unit_price = to_float(_get(r, "Lineitem price", "LineItem price"))
+            compare_at = to_float(
+                _get(
+                    r,
+                    "Lineitem compare at price",
+                    "Line item compare at price",
+                    "Compare at price",
+                )
+            )
             variant = _get(r, "Lineitem variant", "LineItem variant")
             vend = _get(r, "Lineitem vendor", "LineItem vendor")
             if qty == 0 and not title and not sku:
@@ -133,6 +142,7 @@ def normalize_shopify_rows(rows: list[dict[str, Any]]) -> list[NormalizedOrder]:
                     title=str(title).strip() if title else None,
                     quantity=max(qty, 0),
                     unit_price=unit_price,
+                    compare_at_price=compare_at,
                     line_total=line_total,
                     variant_title=str(variant).strip() if variant else None,
                     vendor=str(vend).strip() if vend else None,
@@ -268,6 +278,7 @@ def _line_to_dict(order_name: str, li: NormalizedLineItem) -> dict[str, Any]:
         "vendor": li.vendor,
         "quantity": li.quantity,
         "unit_price": _to_decimal(li.unit_price),
+        "compare_at_price": _to_decimal(li.compare_at_price),
         "line_discount_amount": None,
         "line_total": lt,
         "net_line_revenue": lt,
