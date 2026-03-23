@@ -32,23 +32,61 @@ if not dashboard.insights:
     st.info("No insights generated for this upload.")
     st.stop()
 
-def _priority_badge(priority: str) -> str:
+
+def _priority_key(priority: str) -> str:
     p = (priority or "").strip().lower()
     if p == "high":
+        return "high"
+    if p in {"normal", "medium"}:
+        return "medium"
+    return "low"
+
+
+def _priority_badge(priority_key: str) -> str:
+    if priority_key == "high":
         return "🔴 High"
-    if p == "normal":
+    if priority_key == "medium":
         return "🟡 Medium"
     return "🟢 Low"
 
 
+grouped: dict[str, list[dict]] = {"high": [], "medium": [], "low": []}
 for insight in dashboard.insights:
-    badge = _priority_badge(insight.get("priority", "low"))
+    grouped[_priority_key(str(insight.get("priority", "low")))].append(insight)
+
+total_insights = len(dashboard.insights)
+high_count = len(grouped["high"])
+medium_count = len(grouped["medium"])
+low_count = len(grouped["low"])
+
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("Total insights", total_insights)
+k2.metric("High priority", high_count)
+k3.metric("Medium priority", medium_count)
+k4.metric("Low priority", low_count)
+
+
+def _render_insight_card(insight: dict, priority_key: str) -> None:
+    badge = _priority_badge(priority_key)
     with st.container(border=True):
         st.markdown(f"### {insight.get('title', 'Insight')}")
         st.caption(f"{badge} | Category: {insight.get('category', 'general')}")
         st.write(insight.get("summary", ""))
-        with st.expander("Details"):
-            st.markdown(f"**Implication:** {insight.get('implication') or 'N/A'}")
-            st.markdown(f"**Action:** {insight.get('action') or 'N/A'}")
+        st.markdown(f"**Implication:** {insight.get('implication') or 'N/A'}")
+        st.markdown(f"**Action:** {insight.get('action') or 'N/A'}")
+
+
+for section_key, section_title in (
+    ("high", "High Priority"),
+    ("medium", "Medium Priority"),
+    ("low", "Low Priority"),
+):
+    st.subheader(section_title)
+    items = grouped[section_key]
+    if not items:
+        st.info(f"No {section_title.lower()} insights.")
+        continue
+    for insight in items:
+        _render_insight_card(insight, section_key)
 
 render_footer()
