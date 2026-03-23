@@ -1671,3 +1671,88 @@ REQUIREMENTS:
    - low = neutral/success style
 
 7. Keep the page readable for non-technical business users.
+
+
+######################################################
+#Prompt 15
+You are a senior Streamlit product engineer.
+
+Continue the current NosaProfit project using the EXISTING CODEBASE.
+
+IMPORTANT:
+- Reuse existing DashboardData from get_dashboard_data()
+- Do NOT add business logic into Streamlit
+- Keep code directly runnable
+
+FILE TO MODIFY:
+streamlit_app/pages/3_Products.py
+
+GOAL:
+Upgrade the Products page so it feels like a revenue intelligence view, not only a product table.
+
+REQUIREMENTS:
+1. Keep the existing "Top products" table.
+2. Keep the existing "Top 3 SKU share" metric.
+3. Keep the existing "Revenue by SKU" bar chart.
+
+4. Add a new "Product concentration" section:
+   - show a short interpretation based on dashboard.top_3_sku_share
+   - example:
+     - if very high, warn about concentration risk
+     - if moderate, mention balanced mix
+   - keep this lightweight and derived only from existing values
+
+5. Add a new "Top product notes" section:
+   - show top 5 products from dashboard.products_table
+   - render compact cards or rows with main product fields
+
+6. If dashboard.products_table contains missing or blank SKU-like values, show a warning message.
+
+7. Put the raw table into the main area, but make the right side feel like a decision-support sidebar.
+
+8. Keep the page polished and business-friendly.
+
+#####################################
+#Prompt 16
+You are a senior Streamlit product engineer.
+
+Continue the current NosaProfit project using the EXISTING CODEBASE.
+
+IMPORTANT:
+- Reuse existing DashboardData and insights payload
+- Do NOT add business logic
+- Keep code directly runnable
+
+FILE TO MODIFY:
+streamlit_app/pages/6_Insights.py
+
+GOAL:
+Improve the Insights page so priorities are clearer and more executive-friendly.
+
+REQUIREMENTS:
+1. Group insights into sections:
+   - High Priority
+   - Medium Priority
+   - Low Priority
+
+2. Treat both "normal" and "medium" as Medium for display.
+
+3. Each insight card must show:
+   - title
+   - priority badge
+   - category
+   - summary
+   - implication
+   - action
+
+4. Within each section, keep existing bordered card style.
+
+5. Add a compact summary row at the top:
+   - total insights
+   - high priority count
+   - medium priority count
+   - low priority count
+
+6. Handle empty groups gracefully.
+
+7. Keep the page concise and polished.
