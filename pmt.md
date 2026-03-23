@@ -1563,3 +1563,111 @@ Requirements:
 - prioritize highest impact
 - avoid generic statements
  
+
+###################################
+#Prompt 13
+You are a senior Streamlit product engineer.
+
+Continue the current NosaProfit project using the EXISTING CODEBASE.
+
+IMPORTANT:
+- Reuse the existing DashboardData returned by get_dashboard_data()
+- Do NOT change architecture
+- Do NOT add business logic in Streamlit
+- Keep code directly runnable
+- Use existing session handling with active_upload_id and dashboard_data cache
+
+FILE TO MODIFY:
+streamlit_app/pages/1_Overview.py
+
+GOAL:
+Turn the current Overview page from a basic KPI + chart page into an executive summary page for a Shopify revenue intelligence product.
+
+REQUIREMENTS:
+1. Keep the current KPI row:
+   - total_revenue
+   - net_revenue
+   - aov
+   - total_orders
+
+2. Keep the current revenue and order trend charts.
+
+3. Remove the "Recent orders" table from the main focus area and place it at the bottom inside an expander called "Recent orders preview".
+
+4. Add a new section: "Top insights"
+   - Show up to 3 insights from dashboard.insights
+   - Render each as a card with:
+     - title
+     - priority badge
+     - summary
+     - implication
+     - action
+
+5. Add a new section: "Top risks"
+   - Read dashboard.signals_by_severity
+   - Show 3 summary metrics:
+     - High risks
+     - Medium risks
+     - Low risks
+   - Under that, show up to 2 high-severity items as compact cards with:
+     - signal_code
+     - signal_value
+     - threshold_value
+     - entity_type
+     - entity_key
+
+6. Add a new section: "Recommended actions"
+   - Extract the action field from the first 3 insights that have actions
+   - Show them as a numbered action list
+
+7. Handle empty insights and empty risks gracefully.
+
+8. Keep the page executive-friendly, concise, and product-like rather than debug-like.
+
+
+###################################
+ #Prompt 14 
+ You are a senior Streamlit product engineer.
+
+Continue the current NosaProfit project using the EXISTING CODEBASE.
+
+IMPORTANT:
+- Reuse existing dashboard_service.py and DashboardData
+- Do NOT add business logic
+- Keep code directly runnable
+
+FILE TO MODIFY:
+streamlit_app/pages/5_Risks.py
+
+GOAL:
+Upgrade the Risks page from a raw dataframe view into a business-friendly risk dashboard.
+
+REQUIREMENTS:
+1. Keep the page title "Risks".
+
+2. At the top, render 3 KPI metrics:
+   - High severity count
+   - Medium severity count
+   - Low severity count
+
+3. For each severity group (high, medium, low):
+   - Show a section header
+   - If empty, show a simple info message
+   - Otherwise render each signal as a bordered card, not only a dataframe
+
+4. Each risk card must show:
+   - signal_code
+   - observed value (signal_value)
+   - threshold value
+   - entity type / entity key if available
+   - context JSON inside an expander if present
+
+5. Also keep a raw dataframe version inside an expander named:
+   - "Show raw table"
+
+6. Use severity-specific visual cues:
+   - high = error/warning style
+   - medium = warning/info style
+   - low = neutral/success style
+
+7. Keep the page readable for non-technical business users.
