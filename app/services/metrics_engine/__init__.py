@@ -1,60 +1,79 @@
-"""
-Modular metrics registry.
+"""Pure metrics orchestrator.
 
-Add a collector returning ``MetricSnapshot`` rows and register it in ``METRIC_MODULES``.
+Input shape is intentionally loose (``list[dict]``) so callers can pass ORM dumps,
+normalized dicts, or API payloads without coupling this layer to the database.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
+from typing import Any
 
-from sqlalchemy.orm import Session
-
-from app.models.metric_snapshot import MetricSnapshot
-from app.services.metrics_engine import customer_metrics, order_metrics, product_metrics, revenue_metrics
-from app.services.metrics_engine.snapshots import build_snapshot
-
-MetricFn = Callable[[Session, int], Sequence[MetricSnapshot]]
-
-METRIC_MODULES: tuple[MetricFn, ...] = (
-    revenue_metrics.collect,
-    order_metrics.collect,
-    product_metrics.collect,
-    customer_metrics.collect,
+from app.services.metrics_engine.customer_metrics import compute_customer_metrics
+from app.services.metrics_engine.order_metrics import (
+    OrderMetricConfig,
+    compute_order_metrics,
 )
+from app.services.metrics_engine.product_metrics import compute_product_metrics
+from app.services.metrics_engine.revenue_metrics import compute_revenue_metrics
 
 
-@dataclass
-class MetricComputationResult:
-    snapshots: list[MetricSnapshot]
+@dataclass(frozen=True)
+class MetricsEngineConfig:
+    low_value_threshold: Decimal = Decimal("20")
+    high_value_threshold: Decimal = Decimal("200")
 
 
-def run_all_metrics(session: Session, upload_id: int) -> MetricComputationResult:
-    snapshots: list[MetricSnapshot] = []
-    for fn in METRIC_MODULES:
-        snapshots.extend(fn(session, upload_id))
-    return MetricComputationResult(snapshots=snapshots)
+def compute_metrics(
+    *,
+    orders: list[dict[str, Any]],
+    order_items: list[dict[str, Any]],
+    customers: list[dict[str, Any]],
+    config: MetricsEngineConfig | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return one structured payload for signals/dashboard/storage layers."""
+    cfg = config or MetricsEngineConfig()
+    order_cfg = OrderMetricConfig(
+        low_value_threshold=cfg.low_value_threshold,
+        high_value_threshold=cfg.high_value_threshold,
+    )
+    revenue = compute_revenue_metrics(orders)
+    order_quality = compute_order_metrics(orders, config=order_cfg)
+    products = compute_product_metrics(orders, order_items)
+    customer = compute_customer_metrics(orders, customers)
+    return {
+        "revenue": revenue,
+        "orders": order_quality,
+        "products": products,
+        "customers": customer,
+    }
 
 
-def metrics_as_flat_dict(snapshots: Sequence[MetricSnapshot]) -> dict[str, float]:
-    """Overall / all_time metrics for YAML rule evaluation."""
+def run_all_metrics(
+    *,
+    orders: list[dict[str, Any]],
+    order_items: list[dict[str, Any]],
+    customers: list[dict[str, Any]],
+    config: MetricsEngineConfig | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Backward name kept; pure function signature only."""
+    return compute_metrics(
+        orders=orders,
+        order_items=order_items,
+        customers=customers,
+        config=config,
+    )
+
+
+def metrics_as_flat_dict(metrics: dict[str, dict[str, Any]]) -> dict[str, float]:
+    """Flatten top-level scalar metrics for rule/signal engines."""
     out: dict[str, float] = {}
-    for s in snapshots:
-        if (
-            s.metric_scope == "overall"
-            and s.period_type == "all_time"
-            and s.dimension_1 is None
-            and s.dimension_2 is None
-        ):
-            out[s.metric_code] = float(s.metric_value)
+    for domain_values in metrics.values():
+        for key, value in domain_values.items():
+            if isinstance(value, (int, float, Decimal)):
+                out[key] = float(value)
     return out
 
 
-__all__ = [
-    "METRIC_MODULES",
-    "MetricComputationResult",
-    "build_snapshot",
-    "metrics_as_flat_dict",
-    "run_all_metrics",
-]
+__all__ = ["MetricsEngineConfig", "compute_metrics", "metrics_as_flat_dict", "run_all_metrics"]

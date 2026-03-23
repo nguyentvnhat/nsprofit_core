@@ -1,39 +1,54 @@
-"""Revenue-oriented aggregates (extend with time windows, cohorts, etc.)."""
+"""Revenue domain metrics (pure functions, Decimal-safe)."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from decimal import Decimal
-
-from sqlalchemy.orm import Session
-
-from app.models.metric_snapshot import MetricSnapshot
-from app.repositories.order_repository import OrderRepository
-
-from app.services.metrics_engine.snapshots import build_snapshot
+from typing import Any
 
 
-def collect(session: Session, upload_id: int) -> Sequence[MetricSnapshot]:
-    repo = OrderRepository(session)
-    orders = repo.list_orders_for_upload(upload_id)
-    net_total = sum((o.net_revenue or Decimal("0")) for o in orders)
-    gross_total = sum((o.total_price or Decimal("0")) for o in orders)
-    discount_total = sum((o.discount_amount or Decimal("0")) for o in orders)
-    refund_total = sum((o.refunded_amount or Decimal("0")) for o in orders)
-    shipping_total = sum((o.shipping_amount or Decimal("0")) for o in orders)
-    tax_total = sum((o.tax_amount or Decimal("0")) for o in orders)
+def _to_decimal(v: Any) -> Decimal:
+    if v is None:
+        return Decimal("0")
+    if isinstance(v, Decimal):
+        return v
+    try:
+        return Decimal(str(v))
+    except Exception:
+        return Decimal("0")
 
-    discount_to_gross = (
-        (discount_total / gross_total) if gross_total and gross_total > 0 else Decimal("0")
-    )
 
-    return [
-        build_snapshot(upload_id, "net_revenue_total", net_total),
-        build_snapshot(upload_id, "gross_revenue_total", gross_total),
-        build_snapshot(upload_id, "discount_total", discount_total),
-        build_snapshot(upload_id, "refund_total", refund_total),
-        build_snapshot(upload_id, "shipping_total", shipping_total),
-        build_snapshot(upload_id, "tax_total", tax_total),
-        build_snapshot(upload_id, "order_count", len(orders)),
-        build_snapshot(upload_id, "discount_to_gross_ratio", discount_to_gross),
-    ]
+def _median(values: list[Decimal]) -> Decimal:
+    if not values:
+        return Decimal("0")
+    vs = sorted(values)
+    n = len(vs)
+    mid = n // 2
+    if n % 2 == 1:
+        return vs[mid]
+    return (vs[mid - 1] + vs[mid]) / Decimal("2")
+
+
+def compute_revenue_metrics(orders: list[dict[str, Any]]) -> dict[str, Any]:
+    total_orders = len(orders)
+    gross_values = [_to_decimal(o.get("total_price")) for o in orders]
+    net_values = [_to_decimal(o.get("net_revenue")) for o in orders]
+    gross_revenue = sum(gross_values, start=Decimal("0"))
+    net_revenue = sum(net_values, start=Decimal("0"))
+    total_discounts = sum((_to_decimal(o.get("discount_amount")) for o in orders), start=Decimal("0"))
+    total_refunds = sum((_to_decimal(o.get("refunded_amount")) for o in orders), start=Decimal("0"))
+    total_shipping = sum((_to_decimal(o.get("shipping_amount")) for o in orders), start=Decimal("0"))
+    total_tax = sum((_to_decimal(o.get("tax_amount")) for o in orders), start=Decimal("0"))
+    aov = net_revenue / Decimal(total_orders) if total_orders > 0 else Decimal("0")
+    median_order_value = _median(net_values)
+
+    return {
+        "total_orders": total_orders,
+        "gross_revenue": gross_revenue,
+        "net_revenue": net_revenue,
+        "total_discounts": total_discounts,
+        "total_refunds": total_refunds,
+        "total_shipping": total_shipping,
+        "total_tax": total_tax,
+        "aov": aov,
+        "median_order_value": median_order_value,
+    }
