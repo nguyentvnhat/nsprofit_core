@@ -13,9 +13,9 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import list_uploads, run_dashboard_pipeline
-from streamlit_app.ui_components import apply_saas_theme, render_footer, render_page_header
+from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, render_footer, render_page_header
 
-st.set_page_config(page_title="NosaProfit", layout="wide")
+st.set_page_config(page_title="NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Home")
 render_page_header("NosaProfit", "Upload a Shopify CSV, process it, then explore KPIs, risks, and insights.")
 

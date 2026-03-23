@@ -4,8 +4,29 @@ from __future__ import annotations
 
 import math
 import textwrap
+from pathlib import Path
 
 import streamlit as st
+
+_LOGO_CANDIDATES = (
+    Path(__file__).resolve().parents[1] / "assets" / "nosaprofit.png",
+    Path(
+        "/Users/nhatnguyen/.cursor/projects/Users-nhatnguyen-Local-Sites-nosa-profit-core/assets/"
+        "nosaprofit-42a317b8-5316-4c35-aad1-e51041cc21dd.png"
+    ),
+)
+
+
+def brand_logo_path() -> str | None:
+    for path in _LOGO_CANDIDATES:
+        if path.is_file():
+            return str(path)
+    return None
+
+
+def brand_page_icon() -> str:
+    logo = brand_logo_path()
+    return logo if logo else "📊"
 
 
 def fmt_usd(value: float | int | None) -> str:
@@ -168,6 +189,9 @@ def _render_sidebar_menu(current_page: str | None = None) -> None:
     }
 
     with st.sidebar:
+        logo = brand_logo_path()
+        if logo:
+            st.image(logo, use_container_width=True)
         st.markdown("### NosaProfit")
         st.caption("Revenue Intelligence")
         try:
