@@ -14,10 +14,11 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import render_footer
+from streamlit_app.ui_components import apply_saas_theme, render_footer, render_page_header
 
 st.set_page_config(page_title="Overview — NosaProfit", layout="wide")
-st.header("Overview")
+apply_saas_theme(current_page="Overview")
+render_page_header("Overview", "Executive summary of revenue, risks, and actions.")
 
 
 def _priority_badge(priority: str) -> str:

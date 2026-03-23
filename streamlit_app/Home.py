@@ -13,11 +13,11 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import list_uploads, run_dashboard_pipeline
-from streamlit_app.ui_components import render_footer
+from streamlit_app.ui_components import apply_saas_theme, render_footer, render_page_header
 
 st.set_page_config(page_title="NosaProfit", layout="wide")
-st.title("NosaProfit")
-st.caption("Upload a Shopify CSV, process it, then explore KPIs, risks, and insights.")
+apply_saas_theme(current_page="Home")
+render_page_header("NosaProfit", "Upload a Shopify CSV, process it, then explore KPIs, risks, and insights.")
 
 uploaded = st.file_uploader("Shopify orders export (CSV)", type=["csv"])
 if st.button("Run pipeline", type="primary"):

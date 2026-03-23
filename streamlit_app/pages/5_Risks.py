@@ -14,10 +14,11 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import render_footer
+from streamlit_app.ui_components import apply_saas_theme, render_footer, render_page_header
 
 st.set_page_config(page_title="Risks — NosaProfit", layout="wide")
-st.header("Risks")
+apply_saas_theme(current_page="Risks")
+render_page_header("Risks", "Severity-based risk monitoring for fast decision-making.")
 
 uid = st.session_state.get("active_upload_id")
 dashboard = st.session_state.get("dashboard_data")

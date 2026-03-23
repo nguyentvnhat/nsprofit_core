@@ -13,10 +13,11 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import render_footer
+from streamlit_app.ui_components import apply_saas_theme, render_footer, render_page_header
 
 st.set_page_config(page_title="Products — NosaProfit", layout="wide")
-st.header("Products")
+apply_saas_theme(current_page="Products")
+render_page_header("Products", "SKU performance and concentration signals.")
 
 uid = st.session_state.get("active_upload_id")
 dashboard = st.session_state.get("dashboard_data")
