@@ -788,3 +788,48 @@ Implement:
 
 ```python
 def parse_shopify_csv(file_path: str) -> list[dict]:
+
+
+#PROMPT 4
+You are a senior data engineer.
+
+Continue the NosaProfit project in the CURRENT FOLDER.
+
+Your task is to implement a Shopify normalization service that transforms raw parsed CSV rows into structured entities ready for database insertion.
+
+---
+
+# 🎯 GOAL
+
+Transform raw rows into:
+
+1. orders (order-level)
+2. order_items (line-item-level)
+3. customers (customer-level)
+
+---
+
+# 📂 TARGET FILE
+
+app/services/shopify_normalizer.py
+
+---
+
+# 🧠 CONTEXT
+
+Input:
+- list[dict] from parse_shopify_csv()
+
+Important:
+- Each row = 1 line item
+- Same order appears multiple times
+- Need grouping logic
+
+---
+
+# ⚙️ REQUIREMENTS
+
+## 1. Main function
+
+```python
+def normalize_shopify_data(rows: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
