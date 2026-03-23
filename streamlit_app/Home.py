@@ -1,4 +1,4 @@
-"""Landing: upload CSV and pick active batch (UI only — logic lives in `app.services`)."""
+"""Home page: upload Shopify CSV and run dashboard pipeline."""
 
 from __future__ import annotations
 
@@ -12,23 +12,30 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 
 from app.database import session_scope
-from app.services.dashboard_service import list_uploads
-from app.services.pipeline import process_shopify_csv
+from app.services.dashboard_service import list_uploads, run_dashboard_pipeline
 
 st.set_page_config(page_title="NosaProfit", layout="wide")
 st.title("NosaProfit")
-st.caption("Upload a Shopify order export to populate analytics for the dashboard pages.")
+st.caption("Upload a Shopify CSV, process it, then explore KPIs, risks, and insights.")
 
 uploaded = st.file_uploader("Shopify orders export (CSV)", type=["csv"])
-if uploaded is not None and st.button("Run pipeline", type="primary"):
-    data = uploaded.getvalue()
-    try:
-        with session_scope() as session:
-            uid = process_shopify_csv(session, file_bytes=data, filename=uploaded.name)
-        st.session_state["active_upload_id"] = uid
-        st.success(f"Processed upload id **{uid}**.")
-    except Exception as exc:  # noqa: BLE001 — show user-facing error
-        st.error(str(exc))
+if st.button("Run pipeline", type="primary"):
+    if uploaded is None:
+        st.info("Upload a CSV file to run the pipeline.")
+    else:
+        data = uploaded.getvalue()
+        try:
+            with session_scope() as session:
+                dashboard = run_dashboard_pipeline(
+                    session,
+                    file_bytes=data,
+                    filename=uploaded.name,
+                )
+            st.session_state["active_upload_id"] = dashboard.upload_id
+            st.session_state["dashboard_data"] = dashboard
+            st.success(f"Processed upload **#{dashboard.upload_id}** successfully.")
+        except Exception as exc:  # noqa: BLE001 - user-friendly pipeline boundary
+            st.error(f"Pipeline failed: {exc}")
 
 with session_scope() as session:
     rows = list_uploads(session)
@@ -45,5 +52,6 @@ if rows:
         index=default_idx,
     )
     st.session_state["active_upload_id"] = choice
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 else:
     st.info("No uploads yet — ingest a CSV to begin.")

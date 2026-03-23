@@ -1,30 +1,49 @@
-"""Product concentration and catalog risk signals."""
+"""Product-domain signal rules (pure functions)."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from typing import Any
 
-from sqlalchemy.orm import Session
+from app.services.signal_engine.types import Signal
 
-from app.services.signal_engine.types import SignalDraft
+DEFAULTS: dict[str, float] = {
+    "top_3_sku_share_high_pct": 60.0,
+    "product_discount_rate_high_pct": 20.0,
+}
 
-DEFAULT_TOP_SKU_SHARE_WARN = 0.55
 
+def collect(metrics: dict[str, dict[str, Any]], config: dict[str, float] | None = None) -> list[Signal]:
+    cfg = {**DEFAULTS, **(config or {})}
+    products = metrics.get("products", {})
+    out: list[Signal] = []
 
-def collect(
-    session: Session,
-    upload_id: int,
-    metric_map: dict[str, float],
-) -> Sequence[SignalDraft]:
-    _ = session, upload_id
-    share = float(metric_map.get("top_sku_quantity_share", 0.0))
-    if share >= DEFAULT_TOP_SKU_SHARE_WARN:
-        return [
-            SignalDraft(
-                domain="product",
-                code="SKU_QUANTITY_CONCENTRATION",
-                severity="info",
-                payload={"top_sku_quantity_share": share, "threshold": DEFAULT_TOP_SKU_SHARE_WARN},
-            )
-        ]
-    return []
+    top3_share_pct = float(products.get("top_3_sku_share", 0.0)) * 100.0
+    if top3_share_pct >= cfg["top_3_sku_share_high_pct"]:
+        out.append(
+            {
+                "signal_code": "SKU_QUANTITY_CONCENTRATION",
+                "category": "product_mix",
+                "severity": "high",
+                "entity_type": "overall",
+                "entity_key": None,
+                "signal_value": top3_share_pct,
+                "threshold_value": cfg["top_3_sku_share_high_pct"],
+                "context": {"top_3_sku_share_pct": top3_share_pct},
+            }
+        )
+
+    product_discount_rate_pct = float(products.get("product_discount_rate", 0.0)) * 100.0
+    if product_discount_rate_pct >= cfg["product_discount_rate_high_pct"]:
+        out.append(
+            {
+                "signal_code": "PRODUCT_DISCOUNT_RATE_HIGH",
+                "category": "pricing",
+                "severity": "medium",
+                "entity_type": "overall",
+                "entity_key": None,
+                "signal_value": product_discount_rate_pct,
+                "threshold_value": cfg["product_discount_rate_high_pct"],
+                "context": {"product_discount_rate_pct": product_discount_rate_pct},
+            }
+        )
+    return out

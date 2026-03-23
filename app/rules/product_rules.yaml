@@ -1,14 +1,34 @@
-domain: product
 rules:
-  - id: product_concentration_rule
+  - rule_code: product_concentration
+    category: product_mix
+    severity: high
     enabled: true
-    require_signals:
-      - SKU_QUANTITY_CONCENTRATION
-    match:
+    condition:
       all:
-        - metric: top_sku_quantity_share
-          op: ">="
-          value: 0.55
-    insight:
-      narrative_key: product_concentration
-      severity: info
+        - type: signal
+          signal_code: SKU_QUANTITY_CONCENTRATION
+        - type: metric
+          metric: top_3_sku_share
+          operator: ">"
+          value: 0.60
+    title_template: "Revenue is concentrated in a few SKUs"
+    summary_template: "Top 3 SKU revenue share is {top_3_sku_share:.2f}, concentration risk is elevated."
+    implication_template: "Demand volatility and stock-outs in top SKUs can materially affect revenue."
+    action_template: "Diversify demand with bundles and merchandising for mid-tail SKUs."
+
+  - rule_code: product_discount_intensity
+    category: pricing
+    severity: medium
+    enabled: true
+    condition:
+      any:
+        - type: signal
+          signal_code: PRODUCT_DISCOUNT_RATE_HIGH
+        - type: metric
+          metric: product_discount_rate
+          operator: ">"
+          value: 0.20
+    title_template: "Product-level discount intensity is high"
+    summary_template: "Product discount rate is {product_discount_rate:.2f}, which can dilute margin."
+    implication_template: "Margin quality depends heavily on sustained discounting."
+    action_template: "Review discount policy by category and cap deep-discount long-tail offers."

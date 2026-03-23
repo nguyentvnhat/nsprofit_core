@@ -26,35 +26,23 @@ from app.services.narrative_engine import narrate_all
 from app.services.rules_engine import evaluate_rules, sync_rule_definitions
 from app.services.shopify_normalizer import normalize_shopify_data
 from app.services.signal_engine import run_all_signals, signal_codes
-from app.services.signal_engine.types import SignalDraft
+from app.services.signal_engine.types import Signal
 
 
 def _priority_for_severity(severity: str) -> str:
     return "high" if severity == "warning" else "normal"
 
 
-def _signal_event_from_draft(upload_id: int, d: SignalDraft) -> SignalEvent:
-    p = dict(d.payload or {})
-    sig_val: Decimal | None = None
-    thr: Decimal | None = None
-    for key in (
-        "discount_to_gross_ratio",
-        "refund_to_gross_ratio",
-        "top_sku_quantity_share",
-        "repeat_customer_ratio",
-        "zero_shipping_order_share",
-    ):
-        if key in p:
-            sig_val = Decimal(str(p[key]))
-            break
-    if "threshold" in p:
-        thr = Decimal(str(p["threshold"]))
+def _signal_event_from_draft(upload_id: int, d: Signal) -> SignalEvent:
+    p = dict(d.get("context", {}) or {})
+    sig_val = Decimal(str(d.get("signal_value", 0)))
+    thr = Decimal(str(d.get("threshold_value", 0)))
     return SignalEvent(
         upload_id=upload_id,
-        signal_code=d.code,
-        severity=d.severity,
-        entity_type=d.domain,
-        entity_key=None,
+        signal_code=str(d["signal_code"]),
+        severity=str(d["severity"]),
+        entity_type=str(d["entity_type"]),
+        entity_key=d.get("entity_key"),
         signal_value=sig_val,
         threshold_value=thr,
         signal_context_json=p or None,
@@ -169,7 +157,7 @@ def process_shopify_csv(
         metric_repo.replace_for_upload(upload.id, snapshots)
         metric_map = metrics_as_flat_dict(metrics)
 
-        drafts = run_all_signals(session, upload.id, metric_map)
+        drafts = run_all_signals(metrics)
         events = [_signal_event_from_draft(upload.id, d) for d in drafts]
         signal_repo.replace_for_upload(upload.id, events)
 
@@ -179,8 +167,8 @@ def process_shopify_csv(
         insights = [
             Insight(
                 upload_id=upload.id,
-                insight_code=n.rule_id,
-                category=n.domain,
+                insight_code=n.rule_code,
+                category=n.category,
                 priority=_priority_for_severity(n.severity),
                 title=n.title,
                 summary=n.summary,

@@ -1,14 +1,34 @@
-domain: customer
 rules:
-  - id: customer_repeat_thin
+  - rule_code: customer_repeat_rate_low
+    category: retention
+    severity: high
     enabled: true
-    require_signals:
-      - LOW_REPEAT_MIX
-    match:
+    condition:
       all:
-        - metric: repeat_customer_ratio
-          op: "<"
-          value: 0.08
-    insight:
-      narrative_key: customer_repeat_low
-      severity: info
+        - type: signal
+          signal_code: LOW_REPEAT_MIX
+        - type: metric
+          metric: repeat_customer_rate
+          operator: "<"
+          value: 0.15
+    title_template: "Repeat customer rate is below target"
+    summary_template: "Repeat customer rate is {repeat_customer_rate:.2f} with {repeat_customer_count:.0f} repeat buyers."
+    implication_template: "Growth is likely over-dependent on first-time acquisition."
+    action_template: "Prioritize post-purchase retention flows and segmented win-back programs."
+
+  - rule_code: customer_revenue_concentration
+    category: customer_concentration
+    severity: medium
+    enabled: true
+    condition:
+      any:
+        - type: signal
+          signal_code: TOP_CUSTOMER_CONCENTRATION_HIGH
+        - type: metric
+          metric: top_customer_revenue_share
+          operator: ">"
+          value: 0.30
+    title_template: "Customer revenue concentration is high"
+    summary_template: "Top-customer revenue share is {top_customer_revenue_share:.2f}."
+    implication_template: "Revenue stability may be sensitive to churn among a few buyers."
+    action_template: "Expand mid-tier customer value with loyalty and replenishment campaigns."

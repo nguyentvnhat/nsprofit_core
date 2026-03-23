@@ -1,53 +1,52 @@
-"""Operational / financial risk signals (refunds, shipping)."""
+"""Risk-domain signal rules (pure functions)."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from decimal import Decimal
+from typing import Any
 
-from sqlalchemy.orm import Session
+from app.services.signal_engine.types import Signal
 
-from app.repositories.order_repository import OrderRepository
-
-from app.services.signal_engine.types import SignalDraft
-
-DEFAULT_REFUND_TO_GROSS_WARN = 0.12
+DEFAULTS: dict[str, float] = {
+    "refund_rate_high_pct": 12.0,
+    "free_shipping_rate_high_pct": 65.0,
+}
 
 
-def collect(
-    session: Session,
-    upload_id: int,
-    metric_map: dict[str, float],
-) -> Sequence[SignalDraft]:
-    _ = metric_map
-    out: list[SignalDraft] = []
-    repo = OrderRepository(session)
-    orders = repo.list_orders_for_upload(upload_id)
-    gross = sum((o.total_price or Decimal("0")) for o in orders)
-    refunds = sum((o.refunded_amount or Decimal("0")) for o in orders)
-    ratio = float(refunds / gross) if gross and gross > 0 else 0.0
-    if ratio >= DEFAULT_REFUND_TO_GROSS_WARN:
+def collect(metrics: dict[str, dict[str, Any]], config: dict[str, float] | None = None) -> list[Signal]:
+    cfg = {**DEFAULTS, **(config or {})}
+    revenue = metrics.get("revenue", {})
+    orders = metrics.get("orders", {})
+    out: list[Signal] = []
+
+    gross = float(revenue.get("gross_revenue", 0.0))
+    refunds = float(revenue.get("total_refunds", 0.0))
+    refund_rate_pct = (refunds / gross) * 100.0 if gross > 0 else 0.0
+    if refund_rate_pct >= cfg["refund_rate_high_pct"]:
         out.append(
-            SignalDraft(
-                domain="risk",
-                code="ELEVATED_REFUND_RATE",
-                severity="warning",
-                payload={"refund_to_gross_ratio": ratio, "threshold": DEFAULT_REFUND_TO_GROSS_WARN},
-            )
+            {
+                "signal_code": "ELEVATED_REFUND_RATE",
+                "category": "risk",
+                "severity": "high",
+                "entity_type": "overall",
+                "entity_key": None,
+                "signal_value": refund_rate_pct,
+                "threshold_value": cfg["refund_rate_high_pct"],
+                "context": {"refund_rate_pct": refund_rate_pct},
+            }
         )
 
-    free_ship_flags = 0
-    for o in orders:
-        ship = o.shipping_amount or Decimal("0")
-        if ship == 0 and (o.total_quantity or 0) > 0:
-            free_ship_flags += 1
-    if len(orders) >= 10 and free_ship_flags / len(orders) > 0.65:
+    free_shipping_rate_pct = float(orders.get("free_shipping_rate", 0.0)) * 100.0
+    if free_shipping_rate_pct >= cfg["free_shipping_rate_high_pct"]:
         out.append(
-            SignalDraft(
-                domain="risk",
-                code="FREE_SHIPPING_HEAVY",
-                severity="info",
-                payload={"zero_shipping_order_share": free_ship_flags / len(orders)},
-            )
+            {
+                "signal_code": "FREE_SHIPPING_HEAVY",
+                "category": "operational_risk",
+                "severity": "medium",
+                "entity_type": "overall",
+                "entity_key": None,
+                "signal_value": free_shipping_rate_pct,
+                "threshold_value": cfg["free_shipping_rate_high_pct"],
+                "context": {"free_shipping_rate_pct": free_shipping_rate_pct},
+            }
         )
     return out

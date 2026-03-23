@@ -38,6 +38,9 @@ def compute_revenue_metrics(orders: list[dict[str, Any]]) -> dict[str, Any]:
     total_refunds = sum((_to_decimal(o.get("refunded_amount")) for o in orders), start=Decimal("0"))
     total_shipping = sum((_to_decimal(o.get("shipping_amount")) for o in orders), start=Decimal("0"))
     total_tax = sum((_to_decimal(o.get("tax_amount")) for o in orders), start=Decimal("0"))
+    discount_to_gross_ratio = (
+        total_discounts / gross_revenue if gross_revenue > 0 else Decimal("0")
+    )
     aov = net_revenue / Decimal(total_orders) if total_orders > 0 else Decimal("0")
     median_order_value = _median(net_values)
 
@@ -49,6 +52,7 @@ def compute_revenue_metrics(orders: list[dict[str, Any]]) -> dict[str, Any]:
         "total_refunds": total_refunds,
         "total_shipping": total_shipping,
         "total_tax": total_tax,
+        "discount_to_gross_ratio": discount_to_gross_ratio,
         "aov": aov,
         "median_order_value": median_order_value,
     }
