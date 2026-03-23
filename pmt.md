@@ -1349,3 +1349,217 @@ Return:
 1. all Streamlit files
 2. dashboard_service.py (if not exists)
 3. clean, production-ready code
+
+
+
+#Propmt #9 - Advances metrics
+You are a senior data engineer building a Shopify revenue analytics engine.
+
+Extend the existing metrics engine to compute ADVANCED METRICS required for business insights.
+
+Input:
+- orders
+- line_items
+- customers
+
+Output:
+Return a dictionary with these additional metrics:
+
+1. monthly_revenue: dict[month → revenue]
+2. monthly_orders: dict[month → order count]
+3. monthly_aov: dict[month → AOV]
+
+4. top_sku_revenue_share:
+   - revenue of top SKU / total revenue
+
+5. sku_revenue_distribution:
+   - dict[sku → revenue]
+
+6. order_value_distribution:
+   - buckets:
+     <25, 25–50, 50–100, 100–200, >200
+
+7. low_value_order_ratio:
+   - % orders < 50
+
+8. discount_amount_total
+9. discount_rate:
+   - total discount / gross revenue
+
+10. compare_at_discount_total:
+   - sum(compare_at_price - price)
+
+11. bundle_pairs:
+   - top 10 product pairs bought together
+   - format: [(sku1, sku2, count)]
+
+12. source_revenue_distribution:
+   - dict[source → revenue]
+
+13. top_source_share:
+   - highest source revenue %
+
+14. blank_sku_revenue:
+   - revenue from line items with empty SKU
+
+15. orders_near_free_shipping_threshold:
+   - % orders within 10% below threshold (assume threshold = 60)
+
+16. revenue_growth:
+   - last month vs previous
+
+17. aov_growth:
+   - last month vs previous
+
+Requirements:
+- clean Python
+- no external API
+- handle missing data safely
+- modular functions
+
+
+
+#Prompt 10 - not - signal engine improvements
+You are a revenue intelligence system.
+
+Using the advanced metrics, generate SIGNALS (structured patterns, not insights yet).
+
+Input:
+- metrics dict
+
+Output:
+Return a dict of boolean or numeric signals:
+
+Signals to implement:
+
+1. high_discount_dependency:
+   discount_rate > 0.2
+
+2. stacked_discounting:
+   compare_at_discount_total > 0 AND discount_amount_total > 0
+
+3. volume_driven_growth:
+   revenue_growth > 0 AND aov_growth <= 0
+
+4. hero_sku_concentration:
+   top_sku_revenue_share > 0.4
+
+5. low_order_value_problem:
+   low_value_order_ratio > 0.5
+
+6. free_shipping_opportunity:
+   orders_near_free_shipping_threshold > 0.3
+
+7. source_concentration_risk:
+   top_source_share > 0.7
+
+8. bundle_opportunity:
+   at least one pair count > threshold
+
+9. data_hygiene_issue:
+   blank_sku_revenue > 0
+
+10. unstable_growth:
+   revenue fluctuates significantly month-to-month
+
+Requirements:
+- return structured signals
+- do NOT generate human text
+- pure logic only
+
+#prompt 11 rule engine - not 
+You are a Shopify revenue strategist.
+
+Convert signals into BUSINESS RULE FLAGS.
+
+Input:
+- signals dict
+
+Output:
+Return list of triggered rules:
+
+Rules:
+
+- if high_discount_dependency:
+  "discount_dependency_risk"
+
+- if stacked_discounting:
+  "double_discounting_issue"
+
+- if volume_driven_growth:
+  "low_quality_growth"
+
+- if hero_sku_concentration:
+  "sku_concentration_risk"
+
+- if low_order_value_problem:
+  "aov_structure_issue"
+
+- if free_shipping_opportunity:
+  "free_shipping_optimization_opportunity"
+
+- if source_concentration_risk:
+  "channel_dependency_risk"
+
+- if bundle_opportunity:
+  "bundle_revenue_opportunity"
+
+- if data_hygiene_issue:
+  "data_quality_issue"
+
+- if unstable_growth:
+  "revenue_instability"
+
+Requirements:
+- deterministic mapping
+- no explanation
+
+#prompt 12 - insight engine - not
+
+You are a Head of Revenue analyzing a Shopify store.
+
+Generate BUSINESS INSIGHTS from rules.
+
+Input:
+- rules list
+- metrics
+
+Output:
+Return list of insights:
+
+Each insight must include:
+
+- title
+- summary (clear, non-technical)
+- implication (why it matters)
+- action (what to do)
+- priority (high/medium/low)
+
+Tone:
+- operator mindset
+- concise
+- actionable
+- no fluff
+
+Examples:
+
+discount_dependency_risk:
+Title: Discount becoming default sales mechanism
+
+low_quality_growth:
+Title: Revenue growth driven by volume, not value
+
+sku_concentration_risk:
+Title: Over-reliance on a single product
+
+aov_structure_issue:
+Title: Order value structure is limiting growth
+
+free_shipping_optimization_opportunity:
+Title: Missed opportunity to increase AOV via shipping threshold
+
+Requirements:
+- max 10 insights
+- prioritize highest impact
+- avoid generic statements
+ 
