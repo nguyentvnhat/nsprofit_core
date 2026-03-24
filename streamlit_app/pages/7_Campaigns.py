@@ -181,12 +181,21 @@ def _priority_meta(priority: str) -> tuple[str, str, str]:
 
 
 def _sort_insights(rows: list[dict]) -> list[dict]:
+    def _speed_score(row: dict) -> int:
+        t = _time_to_impact(row)
+        return {"3-7 days": 4, "7-14 days": 3, "14-30 days": 2, "30+ days": 1}.get(t, 2)
+
+    def _confidence_score(row: dict) -> int:
+        c = _confidence_label(row)
+        return {"High": 3, "Medium": 2, "Low": 1}.get(c, 1)
+
     return sorted(
         rows,
         key=lambda r: (
+            -_impact_value(r),
+            -_speed_score(r),
+            -_confidence_score(r),
             -_f(r.get("priority_score")),
-            -(_f(r.get("estimated_loss")) + _f(r.get("opportunity_size"))),
-            -_f(r.get("impacted_revenue")),
         ),
     )
 
@@ -319,21 +328,285 @@ def _money_driven_action(row: dict) -> str:
             base = f"Tighten targeting and offer design in {campaign}"
 
     if loss > 0:
-        return f"{base} -> save ~{fmt_usd(loss)}"
+        return f"{base} -> protect {fmt_usd(loss)}"
     if opp > 0:
-        return f"{base} -> gain ~{fmt_usd(opp)}"
+        return f"{base} -> gain {fmt_usd(opp)}"
 
     # Proxy when direct dollar impact is not available.
     if revenue <= 0:
-        return f"{base} -> no dollar estimate available"
+        return f"{base} -> protect {fmt_usd(0)} (directional)"
     if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
         proxy = revenue * 0.05
         return f"Protect ~{fmt_usd(proxy)} revenue exposure by diversifying channels in {campaign}"
     if "LOW_REPEAT" in blob or "REPEAT" in blob:
         proxy = revenue * 0.08  # 5-10% proxy midpoint
-        return f"Recover ~{fmt_usd(proxy)} by improving repeat mix in {campaign}"
+        return f"Recover ~{fmt_usd(proxy)} by increasing repeat mix in {campaign}"
     proxy = revenue * 0.05
     return f"Protect ~{fmt_usd(proxy)} in {campaign} by tightening campaign controls"
+
+
+def _impact_numbers(row: dict) -> tuple[float, float]:
+    loss = max(_f(row.get("estimated_loss")), 0.0)
+    opp = max(_f(row.get("opportunity_size")), 0.0)
+    if loss > 0 or opp > 0:
+        return loss, opp
+    revenue = max(_f(row.get("impacted_revenue")), _f(row.get("revenue")))
+    code = str(row.get("signal_code") or "").upper()
+    title = str(row.get("title") or "").lower()
+    blob = f"{code} {title}"
+    if revenue <= 0:
+        return 0.0, 0.0
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        return revenue * 0.05, revenue * 0.09
+    if "LOW_REPEAT" in blob or "REPEAT" in blob:
+        return revenue * 0.06, revenue * 0.10
+    if "UNSTABLE" in blob or "VOLAT" in blob:
+        return revenue * 0.03, revenue * 0.07
+    return revenue * 0.04, revenue * 0.08
+
+
+def _impact_value(row: dict) -> float:
+    lo, hi = _impact_numbers(row)
+    return max(lo, hi)
+
+
+def _impact_display(row: dict) -> tuple[str, str]:
+    loss, opp = _impact_numbers(row)
+    if loss > 0 and loss >= opp:
+        return f"-{fmt_usd(loss)} loss", "loss"
+    if opp > 0 and opp > loss:
+        return f"+{fmt_usd(opp)} opportunity", "opportunity"
+    lo, hi = _impact_numbers(row)
+    if lo > 0 and hi > lo:
+        return f"Protect {fmt_usd(lo)}-{fmt_usd(hi)} at risk", "range"
+    return f"Protect {fmt_usd(max(lo, hi))} at risk", "range"
+
+
+def _decision_type(row: dict) -> str:
+    blob = f"{str(row.get('signal_code') or '').upper()} {str(row.get('title') or '').lower()}"
+    if "STACK" in blob or "DISCOUNT" in blob or "REFUND" in blob or "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        return "RISK"
+    if "AOV" in blob or "BUNDLE" in blob or "SHIPPING" in blob or "REPEAT" in blob:
+        return "GROWTH"
+    return "QUICK WIN"
+
+
+def _type_badge_style(decision_type: str) -> tuple[str, str]:
+    t = str(decision_type or "").upper()
+    if t == "RISK":
+        return "#fff5f5", "#c92a2a"
+    if t == "GROWTH":
+        return "#ebfbee", "#2b8a3e"
+    return "#fff4e6", "#d9480f"
+
+
+def _time_to_impact(row: dict) -> str:
+    blob = f"{str(row.get('signal_code') or '').upper()} {str(row.get('title') or '').lower()}"
+    if "STACK" in blob or "DISCOUNT" in blob or "SHIPPING" in blob:
+        return "3-7 days"
+    if "AOV" in blob or "BUNDLE" in blob or "REPEAT" in blob:
+        return "7-14 days"
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        return "14-30 days"
+    return "7-14 days"
+
+
+def _confidence_label(row: dict) -> str:
+    basis, _ = _impact_basis(row)
+    blob = f"{str(row.get('signal_code') or '').upper()} {str(row.get('title') or '').lower()}"
+    if basis == "measured_refunds":
+        return "High"
+    if "DISCOUNT" in blob or "AOV" in blob or "UNSTABLE" in blob or "REFUND" in blob:
+        return "Medium"
+    return "Low"
+
+
+def _decision_title(row: dict) -> str:
+    blob = f"{str(row.get('signal_code') or '').upper()} {str(row.get('title') or '').lower()}"
+    if "STACK" in blob or "DISCOUNT" in blob:
+        return "Reduce discount stacking leakage"
+    if "AOV" in blob or "LOW_ORDER_VALUE" in blob:
+        return "Increase AOV with bundle + threshold offer"
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        return "Reduce channel dependency risk"
+    if "REPEAT" in blob:
+        return "Lift repeat purchase rate"
+    if "SHIPPING" in blob or "FREE_SHIP" in blob:
+        return "Set free-shipping threshold for higher margin"
+    if "BUNDLE" in blob or "PAIR" in blob:
+        return "Launch high-conversion bundle offer"
+    if "REFUND" in blob or "RETURN" in blob:
+        return "Reduce refund and return leakage"
+    return "Increase campaign profit this week"
+
+
+def _what_to_do(row: dict) -> str:
+    txt = _money_driven_action(row)
+    return txt.split("->")[0].strip()
+
+
+def _time_weight(time_to_impact: str) -> float:
+    return {"3-7 days": 1.0, "7-14 days": 1.35, "14-30 days": 1.8, "30+ days": 2.4}.get(time_to_impact, 1.5)
+
+
+def _confidence_weight(confidence: str) -> float:
+    return {"High": 1.0, "Medium": 0.75, "Low": 0.5}.get(confidence, 0.6)
+
+
+def _impact_range(value: float, confidence: str) -> tuple[float, float]:
+    if confidence == "High":
+        return value * 0.85, value * 1.05
+    if confidence == "Medium":
+        return value * 0.60, value * 1.15
+    return value * 0.35, value * 1.35
+
+
+def _decision_category(row: dict) -> str:
+    blob = f"{str(row.get('signal_code') or '').upper()} {str(row.get('title') or '').lower()}"
+    if "DISCOUNT" in blob or "STACK" in blob or "PRICING" in blob:
+        return "Pricing / Discount"
+    if "AOV" in blob or "BUNDLE" in blob or "SHIPPING" in blob:
+        return "AOV / Cart"
+    if "REPEAT" in blob or "REFUND" in blob or "RETURN" in blob:
+        return "Retention"
+    return "Channel / Risk"
+
+
+def _urgency_label(time_to_impact: str) -> str:
+    if time_to_impact == "3-7 days":
+        return "Act now"
+    if time_to_impact == "7-14 days":
+        return "Plan next"
+    return "Monitor / strategic"
+
+
+def _why_this_happening(row: dict) -> list[str]:
+    out: list[str] = []
+    share_pct = _f(row.get("affected_revenue_share")) * 100.0
+    if share_pct > 0:
+        out.append(f"{share_pct:.1f}% of revenue in view is exposed to this issue.")
+    discount_pct = _f(row.get("discount_rate")) * 100.0
+    if discount_pct > 0:
+        out.append(f"Current discount rate is {discount_pct:.1f}% in this campaign.")
+    signal_val = _f(row.get("signal_value"))
+    threshold = _f(row.get("threshold_value"))
+    if signal_val > 0 and threshold > 0:
+        out.append(f"Signal {signal_val:.2f} is beyond threshold {threshold:.2f}.")
+    if not out:
+        out.append(_operator_copy(str(row.get("why_now") or ""), max_len=120) or "Campaign structure is reducing profit capture.")
+    return out[:2]
+
+
+def _next_steps(row: dict) -> list[str]:
+    blob = f"{str(row.get('signal_code') or '').upper()} {str(row.get('title') or '').lower()}"
+    if "SHIPPING" in blob or "AOV" in blob:
+        return [
+            "Set free-shipping threshold 10-15% above current AOV.",
+            "Launch a 2-item bundle offer on top-selling SKUs.",
+            "Stop low-AOV ad sets that miss margin floor.",
+        ]
+    if "DISCOUNT" in blob or "STACK" in blob:
+        return [
+            "Set max discount cap by campaign and channel.",
+            "Stop overlapping vouchers on same checkout.",
+            "Move spend to campaigns with better net margin.",
+        ]
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        return [
+            "Shift 20% budget to the second-best channel.",
+            "Launch one additional product set for this campaign.",
+            "Set spend stop-rule if one source exceeds risk limit.",
+        ]
+    if "REPEAT" in blob or "RETENTION" in blob:
+        return [
+            "Launch repeat offer to last 30-day buyers.",
+            "Set reminder flow at day 14 and day 28.",
+            "Add bundle add-on for repeat cohorts only.",
+        ]
+    return [
+        "Set campaign margin floor and enforce daily checks.",
+        "Stop low-margin ad sets by end of day.",
+        "Reallocate spend to top net-margin campaign cells.",
+    ]
+
+
+def _build_decisions(rows: list[dict]) -> list[dict]:
+    merged: dict[str, dict] = {}
+    for row in rows:
+        decision = _decision_title(row)
+        d_type = _decision_type(row)
+        tti = _time_to_impact(row)
+        conf = _confidence_label(row)
+        impact_val = _impact_value(row)
+        if impact_val <= 0:
+            continue
+        key = decision.lower().strip()
+        if key not in merged:
+            merged[key] = {
+                "decision": decision,
+                "campaigns": {str(row.get("campaign") or "unknown")},
+                "type": d_type,
+                "time_to_impact": tti,
+                "confidence": conf,
+                "impact_value": impact_val,
+                "why": _why_this_happening(row),
+                "steps": _next_steps(row),
+                "category": _decision_category(row),
+                "priority_label": str(row.get("priority") or "low").upper(),
+            }
+        else:
+            cur = merged[key]
+            cur["campaigns"].add(str(row.get("campaign") or "unknown"))
+            cur["impact_value"] = float(cur["impact_value"]) + impact_val
+            why = list(cur["why"])
+            for line in _why_this_happening(row):
+                if line not in why:
+                    why.append(line)
+            cur["why"] = why[:2]
+            conf_w = _confidence_weight(str(cur["confidence"]))
+            new_w = _confidence_weight(conf)
+            if new_w > conf_w:
+                cur["confidence"] = conf
+            if _time_weight(tti) < _time_weight(str(cur["time_to_impact"])):
+                cur["time_to_impact"] = tti
+
+    out: list[dict] = []
+    for item in merged.values():
+        conf = str(item["confidence"])
+        tti = str(item["time_to_impact"])
+        impact_val = float(item["impact_value"])
+        low, high = _impact_range(impact_val, conf)
+        score = impact_val * _confidence_weight(conf) / _time_weight(tti)
+        out.append(
+            {
+                **item,
+                "campaigns": ", ".join(sorted(item["campaigns"])),
+                "impact_low": low,
+                "impact_high": high,
+                "priority_score": score,
+                "urgency": _urgency_label(tti),
+            }
+        )
+    out.sort(key=lambda x: (-float(x["priority_score"]), -float(x["impact_value"])))
+    return out
+
+
+def _pick_top_3(decisions: list[dict]) -> list[dict]:
+    picks: list[dict] = []
+    used_idx: set[int] = set()
+    for target in ("QUICK WIN", "GROWTH", "RISK"):
+        idx = next((i for i, d in enumerate(decisions) if i not in used_idx and d["type"] == target), None)
+        if idx is not None:
+            used_idx.add(idx)
+            picks.append(decisions[idx])
+    for i, d in enumerate(decisions):
+        if len(picks) >= 3:
+            break
+        if i in used_idx:
+            continue
+        used_idx.add(i)
+        picks.append(d)
+    return picks[:3]
 
 
 def _upcoming_campaign_calendar(today: date | None = None, limit: int = 6) -> list[dict[str, str]]:
@@ -380,7 +653,8 @@ def _upcoming_campaign_calendar(today: date | None = None, limit: int = 6) -> li
 
 
 sorted_insights = _sort_insights([r for r in insights_rows if isinstance(r, dict)])
-top_3 = sorted_insights[:3]
+decisions = _build_decisions(sorted_insights)
+top_3 = _pick_top_3(decisions)
 
 total_loss = _f((opp_summary or {}).get("total_estimated_loss"))
 total_opp = _f((opp_summary or {}).get("total_opportunity_size"))
@@ -405,24 +679,48 @@ st.markdown(
 )
 st.caption("Money labels: 'Measured' = direct metric amount; 'Estimated (proxy)' = deterministic formula from campaign metrics.")
 
-st.markdown("### Top profit opportunities")
+quick_wins_value = sum(float(d["impact_high"]) for d in decisions if d["time_to_impact"] == "3-7 days")
+s1, s2, s3, s4 = st.columns(4)
+s1.metric("Revenue at risk", fmt_usd(total_loss))
+s2.metric("Growth opportunity", fmt_usd(total_opp))
+s3.metric("Quick wins available", fmt_usd(quick_wins_value))
+s4.metric("Highest-priority campaign", top_campaign_name)
+
+recover_7d = sum(float(d["impact_high"]) for d in top_3 if d["time_to_impact"] == "3-7 days")
+grow_14d = sum(float(d["impact_high"]) for d in top_3 if d["time_to_impact"] == "7-14 days")
+risk_reduce = sum(float(d["impact_high"]) for d in top_3 if d["type"] == "RISK")
+total_30d = sum(float(d["impact_high"]) for d in top_3)
+st.markdown("#### Execution impact if you act now")
+e1, e2, e3, e4 = st.columns(4)
+e1.metric("Recover (0-7 days)", fmt_usd(recover_7d))
+e2.metric("Grow (7-14 days)", fmt_usd(grow_14d))
+e3.metric("Reduce risk", fmt_usd(risk_reduce))
+e4.metric("Total impact (30 days)", fmt_usd(total_30d))
+
+st.markdown("### Top profit decisions")
 if not top_3:
-    st.info("No campaign-level insights in the ranked top slice.")
+    st.info("No decision-ready campaign items in the current slice.")
 else:
     cols = st.columns(3)
     for idx, col in enumerate(cols):
         if idx >= len(top_3):
             continue
         row = top_3[idx]
-        label, badge_color, _ = _priority_meta(str(row.get("priority") or "low"))
-        tone_color, tone_bg = _impact_tone(row)
-        camp = html.escape(str(row.get("campaign") or "unknown"))
-        title = html.escape(_short_title(str(row.get("title") or "Insight"), max_words=8))
-        impact = html.escape(str(row.get("estimated_impact_text") or "No separate dollar proxy on this signal"))
-        why_now = html.escape(_operator_copy(str(row.get("why_now") or ""), max_len=140))
-        score = _f(row.get("priority_score"))
+        label, badge_color, _ = _priority_meta(str(row.get("priority_label") or "low"))
+        decision_type = str(row["type"])
+        tti = str(row["time_to_impact"])
+        conf = str(row["confidence"])
+        urgency = str(row["urgency"])
+        type_bg, type_fg = _type_badge_style(decision_type)
+        tone_color, tone_bg = ("#e03131", "#fff5f5") if decision_type == "RISK" else ("#2b8a3e", "#ebfbee")
+        camp = html.escape(str(row["campaigns"]))
+        title = html.escape(str(row["decision"]))
+        impact = f"{fmt_usd(float(row['impact_low']))} - {fmt_usd(float(row['impact_high']))} (confidence-adjusted)"
+        why_now = html.escape(" ".join(row["why"]))
+        score = float(row["priority_score"])
+        do_now = html.escape(str(row["steps"][0]))
+        type_bg, type_fg = _type_badge_style(decision_type)
         with col:
-            _, basis_label = _impact_basis(row)
             st.markdown(
                 (
                     "<div style='border:1px solid #e9ecef; border-left:6px solid "
@@ -432,22 +730,34 @@ else:
                     f"<span style='background:{badge_color};color:#fff;padding:2px 8px;border-radius:999px;font-size:12px;'>{label}</span>"
                     "</div>"
                     f"<div style='margin-top:6px;font-size:14px;'>{title}</div>"
-                    f"<div style='margin-top:10px;font-size:23px;font-weight:800;color:{tone_color};'>{impact}</div>"
+                    f"<div style='margin-top:10px;font-size:23px;font-weight:800;color:{tone_color};'>{html.escape(impact)}</div>"
+                    f"<div style='margin-top:6px;font-size:11px;color:#334155;'>Type: "
+                    f"<span style='background:{type_bg}; color:{type_fg}; border:1px solid {type_fg}; "
+                    f"padding:1px 6px; border-radius:999px; font-weight:700;'>{decision_type}</span>"
+                    f" &nbsp;|&nbsp; "
+                    f"Priority: <strong>{label.upper()}</strong></div>"
+                    f"<div style='margin-top:2px;font-size:11px;color:#334155;'>Time to impact: <strong>{tti}</strong> &nbsp;|&nbsp; "
+                    f"Confidence: <strong>{conf}</strong> &nbsp;|&nbsp; Urgency: <strong>{urgency}</strong></div>"
                     f"<div style='margin-top:8px;font-size:12px;color:#495057;'>Score {score:.1f}</div>"
-                    f"<div style='margin-top:4px;font-size:11px;color:#6b7280;'>Money basis: {basis_label}</div>"
                     f"<div style='margin-top:8px;font-size:12px;color:#495057;'>{why_now}</div>"
+                    f"<div style='margin-top:6px;font-size:12px;color:#0f172a;'><strong>What to do:</strong> {do_now}</div>"
                     "</div>"
                 ),
                 unsafe_allow_html=True,
             )
 
-st.markdown("### Fix these first")
-actions = _top_actions(top_3, limit=3)
-if not actions:
+st.markdown("### Priority execution plan")
+if not top_3:
     st.caption("No action text available in current insight slice.")
 else:
-    for i, a in enumerate(actions, start=1):
-        st.markdown(f"{i}. {a}")
+    for i, d in enumerate(top_3, start=1):
+        st.markdown(f"**#{i} {d['urgency']} · {d['decision']}**")
+        st.caption(
+            f"{fmt_usd(float(d['impact_low']))} - {fmt_usd(float(d['impact_high']))} | "
+            f"{d['time_to_impact']} | {d['confidence']}"
+        )
+        for sidx, step in enumerate(d["steps"], start=1):
+            st.markdown(f"{sidx}. {step}")
 
 st.markdown("### Upcoming special dates (execution + margin measurement)")
 for ev in _upcoming_campaign_calendar(limit=5):
@@ -457,58 +767,60 @@ for ev in _upcoming_campaign_calendar(limit=5):
     st.caption(ev["success_check"])
 
 st.divider()
-with st.expander("Top campaign insights (ranked)", expanded=False):
-    if not sorted_insights:
-        st.info("No campaign-level insights in the ranked top slice.")
+with st.expander("Top campaign decisions (ranked)", expanded=False):
+    if not decisions:
+        st.info("No campaign-level decisions in the ranked top slice.")
     else:
-        for row in sorted_insights:
-            label, badge_color, _ = _priority_meta(str(row.get("priority") or "low"))
-            tone_color, tone_bg = _impact_tone(row)
-            camp = str(row.get("campaign") or "unknown")
-            title = str(row.get("title") or "Insight")
-            rank = int(_f(row.get("rank"), default=0))
-            score = _f(row.get("priority_score"))
-            impact_txt = str(row.get("estimated_impact_text") or "No separate dollar proxy on this signal")
-            share_pct = _f(row.get("affected_revenue_share")) * 100.0
-            signal_code = str(row.get("signal_code") or "")
-            signal_label, signal_help = signal_friendly_pair(signal_code)
-
-            with st.container(border=True):
-                _, basis_label = _impact_basis(row)
-                st.markdown(
-                    (
-                        "<div style='border-left:6px solid "
-                        f"{tone_color}; background:{tone_bg}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>"
-                        f"<div style='display:flex;justify-content:space-between;gap:8px; align-items:center;'>"
-                        f"<div><strong>{camp} — {title}</strong><br/># {rank} · score {score:.1f}</div>"
-                        f"<span style='background:{badge_color};color:#fff;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;'>{label}</span>"
-                        "</div>"
-                        "</div>"
-                    ),
-                    unsafe_allow_html=True,
-                )
-
-                st.markdown(
-                    f"<div style='font-size:22px; font-weight:800; color:{tone_color}; margin-bottom:8px;'>{html.escape(impact_txt)}</div>",
-                    unsafe_allow_html=True,
-                )
-                st.caption(f"Money basis: {basis_label}")
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Impacted revenue", fmt_usd(_f(row.get("impacted_revenue"))))
-                m2.metric("Estimated loss", fmt_usd(_f(row.get("estimated_loss"))))
-                m3.metric("Opportunity size", fmt_usd(_f(row.get("opportunity_size"))))
-                m4.metric("Share of revenue", f"{share_pct:.1f}%")
-
-                clean_why = _clean_long_text(str(row.get("why_now") or ""), max_len=420)
-                st.markdown(f"**Why now:** {clean_why}")
-                st.caption(
-                    f"Priority: {label} · {str(row.get('category') or '')} · Signal: {signal_label}"
-                )
-                if signal_help:
-                    st.caption(signal_help)
-                st.caption(_basis_note(row))
-                if str(row.get("summary") or "").strip():
-                    st.write(_operator_copy(str(row.get("summary") or ""), max_len=220))
+        grouped: dict[str, list[dict]] = {"Pricing / Discount": [], "AOV / Cart": [], "Retention": [], "Channel / Risk": []}
+        for d in decisions:
+            grouped.setdefault(str(d["category"]), []).append(d)
+        for grp in ("Pricing / Discount", "AOV / Cart", "Retention", "Channel / Risk"):
+            rows = grouped.get(grp) or []
+            if not rows:
+                continue
+            st.markdown(f"#### {grp}")
+            for row in rows:
+                label, badge_color, _ = _priority_meta(str(row.get("priority_label") or "low"))
+                decision_type = str(row["type"])
+                type_bg, type_fg = _type_badge_style(decision_type)
+                tone_color, tone_bg = ("#e03131", "#fff5f5") if decision_type == "RISK" else ("#2b8a3e", "#ebfbee")
+                rank = decisions.index(row) + 1
+                impact_txt = f"{fmt_usd(float(row['impact_low']))} - {fmt_usd(float(row['impact_high']))} (confidence-adjusted)"
+                with st.container(border=True):
+                    st.markdown(
+                        (
+                            "<div style='border-left:6px solid "
+                            f"{tone_color}; background:{tone_bg}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>"
+                            f"<div style='display:flex;justify-content:space-between;gap:8px; align-items:center;'>"
+                            f"<div><strong>#{rank} {row['campaigns']} — {row['decision']}</strong><br/>score {float(row['priority_score']):.1f}</div>"
+                            f"<span style='background:{badge_color};color:#fff;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;'>{label}</span>"
+                            "</div>"
+                            "</div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div style='font-size:22px; font-weight:800; color:{tone_color}; margin-bottom:8px;'>{impact_txt}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        (
+                            f"<div style='font-size:12px; color:#475569; margin-bottom:4px;'>"
+                            f"Type: <span style='background:{type_bg}; color:{type_fg}; border:1px solid {type_fg}; "
+                            f"padding:1px 6px; border-radius:999px; font-weight:700;'>{decision_type}</span>"
+                            f" &nbsp;|&nbsp; Priority: <strong>{label.upper()}</strong>"
+                            f" &nbsp;|&nbsp; Time to impact: <strong>{row['time_to_impact']}</strong>"
+                            f" &nbsp;|&nbsp; Confidence: <strong>{row['confidence']}</strong>"
+                            f" &nbsp;|&nbsp; Urgency: <strong>{row['urgency']}</strong>"
+                            f"</div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    for why in row["why"]:
+                        st.caption(f"Why: {why}")
+                    st.markdown("**What to do next:**")
+                    for sidx, step in enumerate(row["steps"], start=1):
+                        st.markdown(f"{sidx}. {step}")
 
 st.divider()
 df = pd.DataFrame(summary_rows)

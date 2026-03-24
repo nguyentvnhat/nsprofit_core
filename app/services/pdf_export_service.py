@@ -64,14 +64,98 @@ def _money_basis(ins: dict[str, Any]) -> str:
     return "Estimated (proxy)"
 
 
-def _impact_text(ins: dict[str, Any]) -> str:
+def _impact_numbers(ins: dict[str, Any]) -> tuple[float, float]:
     loss = max(_f(ins.get("estimated_loss")), 0.0)
     opp = max(_f(ins.get("opportunity_size")), 0.0)
+    if loss > 0 or opp > 0:
+        return loss, opp
+    revenue = max(_f(ins.get("impacted_revenue")), _f(ins.get("revenue")))
+    code = str(ins.get("signal_code") or "").upper()
+    title = str(ins.get("title") or "").lower()
+    blob = f"{code} {title}"
+    if revenue <= 0:
+        return 0.0, 0.0
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        return revenue * 0.05, revenue * 0.09
+    if "LOW_REPEAT" in blob or "REPEAT" in blob:
+        return revenue * 0.06, revenue * 0.10
+    if "UNSTABLE" in blob or "VOLAT" in blob:
+        return revenue * 0.03, revenue * 0.07
+    return revenue * 0.04, revenue * 0.08
+
+
+def _impact_text(ins: dict[str, Any]) -> str:
+    loss, opp = _impact_numbers(ins)
     if loss > 0 and loss >= opp:
         return f"{_fmt_money(loss)} at risk"
     if opp > 0:
         return f"{_fmt_money(opp)} opportunity"
-    return "No dollar estimate available for this signal"
+    low, high = _impact_numbers(ins)
+    if low > 0 and high > low:
+        return f"{_fmt_money(low)}-{_fmt_money(high)} estimated impact"
+    return f"{_fmt_money(max(low, high))} estimated impact"
+
+
+def _impact_value(ins: dict[str, Any]) -> float:
+    loss, opp = _impact_numbers(ins)
+    return max(loss, opp)
+
+
+def _impact_range_text(ins: dict[str, Any]) -> str:
+    low, high = _impact_numbers(ins)
+    if low > 0 and high > low:
+        return f"{_fmt_money(low)}-{_fmt_money(high)}"
+    v = max(low, high)
+    return _fmt_money(v)
+
+
+def _decision_type(ins: dict[str, Any]) -> str:
+    blob = f"{str(ins.get('signal_code') or '').upper()} {str(ins.get('title') or '').lower()}"
+    if "STACK" in blob or "DISCOUNT" in blob or "REFUND" in blob or "CONCENTRATION" in blob:
+        return "RISK"
+    if "AOV" in blob or "BUNDLE" in blob or "SHIPPING" in blob or "REPEAT" in blob:
+        return "GROWTH"
+    return "QUICK WIN"
+
+
+def _decision_title(ins: dict[str, Any]) -> str:
+    blob = f"{str(ins.get('signal_code') or '').upper()} {str(ins.get('title') or '').lower()}"
+    if "STACK" in blob or "DISCOUNT" in blob:
+        return "Reduce discount stacking leakage"
+    if "AOV" in blob or "LOW_ORDER_VALUE" in blob:
+        return "Increase AOV with bundle + threshold offer"
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        return "Reduce channel dependency risk"
+    if "REPEAT" in blob:
+        return "Lift repeat purchase rate"
+    if "SHIPPING" in blob or "FREE_SHIP" in blob:
+        return "Set free-shipping threshold for higher margin"
+    if "BUNDLE" in blob or "PAIR" in blob:
+        return "Launch high-conversion bundle offer"
+    if "REFUND" in blob or "RETURN" in blob:
+        return "Reduce refund and return leakage"
+    return "Increase campaign profit this week"
+
+
+def _time_to_impact(ins: dict[str, Any]) -> str:
+    blob = f"{str(ins.get('signal_code') or '').upper()} {str(ins.get('title') or '').lower()}"
+    if "STACK" in blob or "DISCOUNT" in blob or "SHIPPING" in blob:
+        return "3-7 days"
+    if "AOV" in blob or "BUNDLE" in blob or "REPEAT" in blob:
+        return "7-14 days"
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        return "14-30 days"
+    return "7-14 days"
+
+
+def _confidence(ins: dict[str, Any]) -> str:
+    basis = _money_basis(ins)
+    blob = f"{str(ins.get('signal_code') or '').upper()} {str(ins.get('title') or '').lower()}"
+    if basis == "Measured":
+        return "High"
+    if "DISCOUNT" in blob or "AOV" in blob or "REFUND" in blob or "UNSTABLE" in blob:
+        return "Medium"
+    return "Low"
 
 
 def _action_text(ins: dict[str, Any]) -> str:
@@ -111,11 +195,11 @@ def _action_text(ins: dict[str, Any]) -> str:
     if opp > 0:
         return f"{base} -> gain {_fmt_money(opp)}"
     if revenue <= 0:
-        return f"{base} -> no dollar estimate available"
+        return f"{base} -> estimated impact {_impact_range_text(ins)}"
     if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
         return f"Protect {_fmt_money(revenue * 0.05)} exposure by diversifying channels in {campaign}"
     if "LOW_REPEAT" in blob or "REPEAT" in blob:
-        return f"Recover {_fmt_money(revenue * 0.08)} by improving repeat mix in {campaign}"
+        return f"Recover {_fmt_money(revenue * 0.08)} by increasing repeat mix in {campaign}"
     return f"Protect {_fmt_money(revenue * 0.05)} by tightening controls in {campaign}"
 
 
@@ -128,6 +212,54 @@ def _sort_insights(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             -_f(r.get("impacted_revenue")),
         ),
     )
+
+
+def _execution_score(ins: dict[str, Any]) -> float:
+    impact = _impact_value(ins)
+    confidence_w = {"High": 1.0, "Medium": 0.75, "Low": 0.5}.get(_confidence(ins), 0.6)
+    speed_w = {"3-7 days": 1.0, "7-14 days": 0.8, "14-30 days": 0.55, "30+ days": 0.35}.get(_time_to_impact(ins), 0.6)
+    return impact * confidence_w * speed_w
+
+
+def _execution_plan(insights: list[dict[str, Any]]) -> list[dict[str, str]]:
+    ordered = sorted(insights, key=lambda x: -_execution_score(x))
+    slots = [
+        ("#1 Quick Win (<7 days)", {"3-7 days"}),
+        ("#2 Growth Lever (7-14 days)", {"7-14 days"}),
+        ("#3 Strategic / Risk Control (longer-term)", {"14-30 days", "30+ days"}),
+    ]
+    plan: list[dict[str, str]] = []
+    used: set[int] = set()
+    for label, allowed in slots:
+        pick_idx = next((i for i, ins in enumerate(ordered) if i not in used and _time_to_impact(ins) in allowed), None)
+        if pick_idx is None:
+            pick_idx = next((i for i in range(len(ordered)) if i not in used), None)
+        if pick_idx is None:
+            break
+        used.add(pick_idx)
+        ins = ordered[pick_idx]
+        plan.append(
+            {
+                "slot": label,
+                "decision": _action_text(ins),
+                "impact": _impact_range_text(ins),
+                "time_to_impact": _time_to_impact(ins),
+                "confidence": _confidence(ins),
+                "type": _decision_type(ins),
+            }
+        )
+    return plan
+
+
+def _impact_high_from_range(range_text: str) -> float:
+    t = str(range_text or "").replace("$", "").replace(",", "")
+    parts = [p.strip() for p in t.split("-") if p.strip()]
+    if not parts:
+        return 0.0
+    try:
+        return float(parts[-1])
+    except ValueError:
+        return 0.0
 
 
 def _campaign_reason_map(risks: list[dict[str, Any]], max_reasons: int = 2) -> dict[str, str]:
@@ -216,13 +348,17 @@ def _build_report_payload(dashboard_data: Any) -> dict[str, Any]:
             {
                 "rank": i,
                 "campaign": str(ins.get("campaign") or "-"),
-                "title": str(ins.get("title") or "Insight"),
+                "title": _decision_title(ins),
                 "impact": _impact_text(ins),
+                "expected_impact": _impact_range_text(ins),
                 "why_now": str(ins.get("why_now") or ""),
                 "priority": _priority_label(ins.get("priority")),
+                "decision_type": _decision_type(ins),
+                "time_to_impact": _time_to_impact(ins),
+                "confidence": _confidence(ins),
                 "score": f"{_f(ins.get('priority_score')):.1f}",
                 "money_basis": _money_basis(ins),
-                "action": _action_text(ins),
+                "decision": _action_text(ins),
             }
         )
 
@@ -245,11 +381,11 @@ def _build_report_payload(dashboard_data: Any) -> dict[str, Any]:
                 "idx": i,
                 "campaign": str(ins.get("campaign") or "-"),
                 "title": str(ins.get("title") or "-"),
-                "impact": _impact_text(ins),
-                "basis": _money_basis(ins),
-                "action": _action_text(ins),
-                "priority": _priority_label(ins.get("priority")),
-                "score": f"{_f(ins.get('priority_score')):.1f}",
+                "decision": _action_text(ins),
+                "impact": _impact_range_text(ins),
+                "type": _decision_type(ins),
+                "time_to_impact": _time_to_impact(ins),
+                "confidence": _confidence(ins),
             }
         )
 
@@ -270,6 +406,13 @@ def _build_report_payload(dashboard_data: Any) -> dict[str, Any]:
         row_with_reason["reason"] = reason
         camp_summary_with_reason.append(row_with_reason)
 
+    execution_plan = _execution_plan(insights)
+    top_plan = execution_plan[:3]
+    recover_7d = sum(_impact_high_from_range(r.get("impact", "")) for r in top_plan if r.get("time_to_impact") == "3-7 days")
+    grow_14d = sum(_impact_high_from_range(r.get("impact", "")) for r in top_plan if r.get("time_to_impact") == "7-14 days")
+    risk_reduce = sum(_impact_high_from_range(r.get("impact", "")) for r in top_plan if r.get("type") == "RISK")
+    total_30 = sum(_impact_high_from_range(r.get("impact", "")) for r in top_plan)
+
     return {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "file_name": str(data.get("file_name") or ""),
@@ -284,10 +427,17 @@ def _build_report_payload(dashboard_data: Any) -> dict[str, Any]:
             "loss": _fmt_money(opp_summary.get("total_estimated_loss")),
             "opportunity": _fmt_money(opp_summary.get("total_opportunity_size")),
             "top_campaign": str(opp_summary.get("top_priority_campaign") or "-"),
+            "short_term_recoverable": _fmt_money(sum(_impact_value(ins) for ins in insights if _time_to_impact(ins) == "3-7 days")),
+            "mid_term_growth": _fmt_money(sum(_impact_value(ins) for ins in insights if _time_to_impact(ins) in {"7-14 days", "14-30 days"})),
+            "recover_7d": _fmt_money(recover_7d),
+            "grow_14d": _fmt_money(grow_14d),
+            "risk_reduce": _fmt_money(risk_reduce),
+            "total_30d": _fmt_money(total_30),
         },
         "top_opportunities": top_opportunities,
         "top_risks": top_risks,
         "recommended_actions": actions,
+        "execution_plan": execution_plan,
         "upcoming_calendar": _upcoming_campaign_calendar(limit=5),
         "campaign_summary_table": camp_summary_with_reason,
         "appendix_insights": appendix_insights,
