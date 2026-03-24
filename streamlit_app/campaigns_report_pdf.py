@@ -548,10 +548,10 @@ def _confidence(ins: dict[str, Any]) -> str:
 
 def _urgency_label(time_to_impact: str) -> str:
     if time_to_impact == "3-7 days":
-        return "Act now"
+        return "Do now (this week)"
     if time_to_impact == "7-14 days":
-        return "Plan next"
-    return "Monitor / strategic"
+        return "Next 2 weeks"
+    return "Strategic follow-up"
 
 
 def _confidence_adjusted_range(ins: dict[str, Any]) -> tuple[float, float]:
@@ -878,7 +878,7 @@ def _build_reportlab_executive_pdf_bytes(
                 f"<b>Type:</b> {_safe_txt(row.get('type'), 12, unicode_ok=False)} | "
                 f"<b>Time:</b> {_safe_txt(row.get('time_to_impact'), 16, unicode_ok=False)} | "
                 f"<b>Confidence:</b> {_safe_txt(row.get('confidence'), 10, unicode_ok=False)} | "
-                f"<b>Urgency:</b> {_safe_txt(row.get('urgency'), 20, unicode_ok=False)}",
+                f"<b>When to act:</b> {_safe_txt(row.get('urgency'), 24, unicode_ok=False)}",
                 decision_meta_style,
             )],
             [Paragraph(f"<b>Why:</b> {_safe_txt(row.get('why'), 220, unicode_ok=False)}", s_txt)],
@@ -903,7 +903,7 @@ def _build_reportlab_executive_pdf_bytes(
     story.append(Spacer(1, 8))
 
     story.append(Paragraph("Priority execution plan", s_h2))
-    plan_rows = [["Slot", "Type", "Decision", "Impact", "Time", "Conf.", "Urgency"]]
+    plan_rows = [["Slot", "Type", "Decision", "Impact", "Time", "Conf.", "When to act"]]
     for row in execution_plan:
         plan_rows.append(
             [
@@ -913,7 +913,7 @@ def _build_reportlab_executive_pdf_bytes(
                 Paragraph(_safe_txt(row["impact"], 50, unicode_ok=False), s_txt),
                 Paragraph(_safe_txt(row["time_to_impact"], 16, unicode_ok=False), s_txt),
                 Paragraph(_safe_txt(row["confidence"], 10, unicode_ok=False), s_txt),
-                Paragraph(_safe_txt(row["urgency"], 20, unicode_ok=False), s_txt),
+                Paragraph(_safe_txt(row["urgency"], 24, unicode_ok=False), s_txt),
             ]
         )
     plan_t = Table(

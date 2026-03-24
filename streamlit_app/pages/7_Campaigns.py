@@ -474,10 +474,10 @@ def _decision_category(row: dict) -> str:
 
 def _urgency_label(time_to_impact: str) -> str:
     if time_to_impact == "3-7 days":
-        return "Act now"
+        return "Do now (this week)"
     if time_to_impact == "7-14 days":
-        return "Plan next"
-    return "Monitor / strategic"
+        return "Next 2 weeks"
+    return "Strategic follow-up"
 
 
 def _why_this_happening(row: dict) -> list[str]:
@@ -737,7 +737,7 @@ else:
                     f" &nbsp;|&nbsp; "
                     f"Priority: <strong>{label.upper()}</strong></div>"
                     f"<div style='margin-top:2px;font-size:11px;color:#334155;'>Time to impact: <strong>{tti}</strong> &nbsp;|&nbsp; "
-                    f"Confidence: <strong>{conf}</strong> &nbsp;|&nbsp; Urgency: <strong>{urgency}</strong></div>"
+                    f"Confidence: <strong>{conf}</strong> &nbsp;|&nbsp; When to act: <strong>{urgency}</strong></div>"
                     f"<div style='margin-top:8px;font-size:12px;color:#495057;'>Score {score:.1f}</div>"
                     f"<div style='margin-top:8px;font-size:12px;color:#495057;'>{why_now}</div>"
                     f"<div style='margin-top:6px;font-size:12px;color:#0f172a;'><strong>What to do:</strong> {do_now}</div>"
@@ -811,7 +811,7 @@ with st.expander("Top campaign decisions (ranked)", expanded=False):
                             f" &nbsp;|&nbsp; Priority: <strong>{label.upper()}</strong>"
                             f" &nbsp;|&nbsp; Time to impact: <strong>{row['time_to_impact']}</strong>"
                             f" &nbsp;|&nbsp; Confidence: <strong>{row['confidence']}</strong>"
-                            f" &nbsp;|&nbsp; Urgency: <strong>{row['urgency']}</strong>"
+                            f" &nbsp;|&nbsp; When to act: <strong>{row['urgency']}</strong>"
                             f"</div>"
                         ),
                         unsafe_allow_html=True,
