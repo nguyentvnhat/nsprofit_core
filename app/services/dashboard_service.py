@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 import logging
+import math
 from typing import Any
 
 import pandas as pd
@@ -32,6 +33,8 @@ class DashboardData:
     products_table: pd.DataFrame
     revenue_by_sku: pd.DataFrame
     top_3_sku_share: float
+    top_3_line_revenue: float
+    products_revenue_total: float
     customer_summary: dict[str, float]
     top_customers: pd.DataFrame
     signals_by_severity: dict[str, list[dict[str, Any]]]
@@ -77,7 +80,9 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
     metrics_map = _load_metric_snapshots(session, uid)
     orders_df = _build_orders_table(session, uid)
     revenue_over_time, orders_over_time = _build_time_series(orders_df)
-    products_table, revenue_by_sku, top_3_sku_share = _build_products(session, uid)
+    products_table, revenue_by_sku, top_3_sku_share, top_3_line_revenue, products_revenue_total = _build_products(
+        session, uid
+    )
     customer_summary, top_customers = _build_customers(orders_df)
     signals_by_severity = _build_signals(session, uid)
     money_summary = _build_money_summary(metrics_map, orders_df)
@@ -124,6 +129,8 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
         products_table=products_table,
         revenue_by_sku=revenue_by_sku,
         top_3_sku_share=top_3_sku_share,
+        top_3_line_revenue=top_3_line_revenue,
+        products_revenue_total=products_revenue_total,
         customer_summary=customer_summary,
         top_customers=top_customers,
         signals_by_severity=signals_by_severity,
@@ -195,6 +202,21 @@ def _kpis_from_orders(orders_df: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def _fmt_money(value: float | int | None) -> str:
+    try:
+        v = float(value or 0.0)
+    except Exception:
+        v = 0.0
+    if not math.isfinite(v):
+        v = 0.0
+    return f"${v:,.2f} USD"
+
+
+def _fmt_money_markdown(value: float | int | None) -> str:
+    """Currency string safe inside Streamlit ``st.markdown`` (``$`` would start LaTeX math)."""
+    return _fmt_money(value).replace("$", r"\$")
+
+
 def _safe_pct(numerator: float, denominator: float) -> float:
     if denominator <= 0:
         return 0.0
@@ -223,6 +245,7 @@ def _build_money_summary(metrics_map: dict[str, float], orders_df: pd.DataFrame)
     estimated_revenue_leakage_pct = _safe_pct(estimated_revenue_leakage_total, gross_revenue)
 
     return {
+        "gross_revenue": gross_revenue,
         "discount_amount_total": discount_amount_total,
         "shipping_amount_total": shipping_amount_total,
         "refunded_amount_total": refunded_amount_total,
@@ -281,7 +304,7 @@ def _build_time_series(orders_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFr
 
 def _build_products(
     session: Session, upload_id: int
-) -> tuple[pd.DataFrame, pd.DataFrame, float]:
+) -> tuple[pd.DataFrame, pd.DataFrame, float, float, float]:
     # Products breakdown needs line items.
     orders = OrderRepository(session).list_orders_for_upload(
         upload_id,
@@ -302,7 +325,7 @@ def _build_products(
 
     if not rows:
         empty = pd.DataFrame(columns=["sku", "product_name", "quantity", "revenue"])
-        return empty, pd.DataFrame(columns=["revenue"]), 0.0
+        return empty, pd.DataFrame(columns=["revenue"]), 0.0, 0.0, 0.0
 
     df = pd.DataFrame(rows)
     grouped = (
@@ -314,7 +337,7 @@ def _build_products(
     total_revenue = float(grouped["revenue"].sum())
     top3_revenue = float(grouped.head(3)["revenue"].sum())
     top3_share = (top3_revenue / total_revenue) if total_revenue > 0 else 0.0
-    return grouped, revenue_by_sku, top3_share
+    return grouped, revenue_by_sku, top3_share, top3_revenue, total_revenue
 
 
 def _build_customers(orders_df: pd.DataFrame) -> tuple[dict[str, float], pd.DataFrame]:
@@ -409,20 +432,42 @@ def _build_insights(
     return [_enrich_insight_money_framing(x, money_summary, signals_by_severity) for x in base]
 
 
+def _insight_text_blob(insight: dict[str, Any]) -> str:
+    """Lowercased concat of fields used to detect discount/shipping/refund-related narratives."""
+    parts = (
+        insight.get("insight_code"),
+        insight.get("category"),
+        insight.get("title"),
+        insight.get("summary"),
+        insight.get("implication"),
+    )
+    return " ".join(str(p or "") for p in parts).lower()
+
+
 def _enrich_insight_money_framing(
     insight: dict[str, Any],
     money_summary: dict[str, float | str],
     signals_by_severity: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any]:
     out = dict(insight)
-    code = str(out.get("insight_code") or "").strip().lower()
-    category = str(out.get("category") or "").strip().lower()
-    title = str(out.get("title") or "").strip().lower()
+    blob = _insight_text_blob(out)
 
     discount_pct = float(money_summary.get("discount_as_pct_revenue", 0.0) or 0.0) * 100.0
     shipping_pct = float(money_summary.get("shipping_as_pct_revenue", 0.0) or 0.0) * 100.0
     refund_pct = float(money_summary.get("refund_as_pct_revenue", 0.0) or 0.0) * 100.0
     leakage_pct = float(money_summary.get("estimated_revenue_leakage_pct", 0.0) or 0.0) * 100.0
+    discount_amt = float(money_summary.get("discount_amount_total", 0.0) or 0.0)
+    shipping_amt = float(money_summary.get("shipping_amount_total", 0.0) or 0.0)
+    refund_amt = float(money_summary.get("refunded_amount_total", 0.0) or 0.0)
+    leakage_amt = float(money_summary.get("estimated_revenue_leakage_total", 0.0) or 0.0)
+    gross_rev = float(money_summary.get("gross_revenue", 0.0) or 0.0)
+
+    if discount_amt <= 0 and discount_pct > 0 and gross_rev > 0:
+        discount_amt = gross_rev * (discount_pct / 100.0)
+    if shipping_amt <= 0 and shipping_pct > 0 and gross_rev > 0:
+        shipping_amt = gross_rev * (shipping_pct / 100.0)
+    if refund_amt <= 0 and refund_pct > 0 and gross_rev > 0:
+        refund_amt = gross_rev * (refund_pct / 100.0)
 
     high_codes = {str(s.get("signal_code", "")) for s in signals_by_severity.get("high", [])}
     medium_codes = {str(s.get("signal_code", "")) for s in signals_by_severity.get("medium", [])}
@@ -431,28 +476,44 @@ def _enrich_insight_money_framing(
     trade_off = ""
     confidence = "low"
 
-    if "discount" in code or "discount" in category or "discount" in title:
-        money_impact = f"Discounts account for approximately {discount_pct:.1f}% of gross revenue."
-        trade_off = "Reducing discounts too aggressively may weaken short-term conversion."
-        confidence = "high" if "HIGH_DISCOUNT_DEPENDENCY_V2" in high_codes else "medium"
-    elif "shipping" in code or "shipping" in category or "shipping" in title:
-        money_impact = f"Shipping absorbs approximately {shipping_pct:.1f}% of gross revenue."
-        trade_off = "Raising free-shipping thresholds can lift AOV but may reduce completion for price-sensitive buyers."
-        confidence = "high" if "FREE_SHIPPING_OPPORTUNITY" in medium_codes else "medium"
-    elif "refund" in code or "refund" in category or "refund" in title:
-        money_impact = f"Refunds represent approximately {refund_pct:.1f}% of gross revenue."
+    if "refund" in blob:
+        money_impact = (
+            f"Refunds account for approximately {_fmt_money_markdown(refund_amt)} "
+            f"({refund_pct:.1f}% of gross revenue)."
+        )
         trade_off = "Tightening return controls can reduce leakage but may impact customer trust."
         confidence = "high" if "ELEVATED_REFUND_RATE" in high_codes else "medium"
-    elif "concentration" in code or "concentration" in category:
+    elif "shipping" in blob:
+        money_impact = (
+            f"Shipping accounts for approximately {_fmt_money_markdown(shipping_amt)} "
+            f"({shipping_pct:.1f}% of gross revenue)."
+        )
+        trade_off = "Raising free-shipping thresholds can lift AOV but may reduce completion for price-sensitive buyers."
+        confidence = "high" if "FREE_SHIPPING_OPPORTUNITY" in medium_codes else "medium"
+    elif "discount" in blob or "markdown" in blob:
+        money_impact = (
+            f"Discounts account for approximately {_fmt_money_markdown(discount_amt)} "
+            f"({discount_pct:.1f}% of gross revenue)."
+        )
+        trade_off = "Reducing discounts too aggressively may weaken short-term conversion."
+        confidence = (
+            "high"
+            if ("HIGH_DISCOUNT_DEPENDENCY_V2" in high_codes or "HIGH_DISCOUNT_DEPENDENCY" in high_codes)
+            else "medium"
+        )
+    elif "concentration" in blob:
         money_impact = "Revenue is concentrated in a narrow set of drivers, which increases downside volatility risk."
         trade_off = "Pushing current winners can improve short-term efficiency but increases concentration exposure."
         confidence = "high" if ("SOURCE_CONCENTRATION_RISK" in high_codes or "HERO_SKU_CONCENTRATION" in high_codes) else "medium"
-    elif "aov" in code or "basket" in category or "bundle" in code:
+    elif "aov" in blob or "basket" in blob or "bundle" in blob:
         money_impact = "A significant share of demand appears to come from lower-value baskets, suggesting AOV headroom."
         trade_off = "Aggressive basket-size tactics can increase friction if not aligned with customer intent."
         confidence = "medium"
     elif leakage_pct > 0:
-        money_impact = f"Estimated revenue leakage (discounts + shipping + refunds) is approximately {leakage_pct:.1f}% of gross revenue."
+        money_impact = (
+            f"Estimated revenue leakage from discounts, shipping, and refunds is approximately "
+            f"{_fmt_money_markdown(leakage_amt)} ({leakage_pct:.1f}% of gross revenue)."
+        )
         trade_off = "Reducing leakage improves retention of revenue but may require conversion-risk trade-offs."
         confidence = "medium"
 

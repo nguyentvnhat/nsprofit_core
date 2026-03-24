@@ -21,6 +21,7 @@ from app.services.dashboard_service import get_dashboard_data
 from streamlit_app.ui_components import (
     apply_saas_theme,
     brand_page_icon,
+    fmt_usd,
     prettify_dataframe_columns,
     render_footer,
     render_page_header,
@@ -155,12 +156,24 @@ def _impact_hint(item: dict, money_summary: dict) -> str:
 
     shipping_pct = float(money_summary.get("shipping_as_pct_revenue", 0.0) or 0.0) * 100.0
     refund_pct = float(money_summary.get("refund_as_pct_revenue", 0.0) or 0.0) * 100.0
+    discount_amt = float(money_summary.get("discount_amount_total", 0.0) or 0.0)
+    shipping_amt = float(money_summary.get("shipping_amount_total", 0.0) or 0.0)
+    refund_amt = float(money_summary.get("refunded_amount_total", 0.0) or 0.0)
     if "DISCOUNT" in code:
-        return f"This may indicate margin leakage through discounting (~{discount_pct:.1f}% of gross revenue)."
+        return (
+            f"This may indicate margin leakage through discounting "
+            f"({fmt_usd(discount_amt)}, ~{discount_pct:.1f}% of gross revenue)."
+        )
     if "SHIPPING" in code:
-        return f"This may limit profitable scaling as shipping absorbs roughly {shipping_pct:.1f}% of revenue."
+        return (
+            f"This may limit profitable scaling as shipping absorbs "
+            f"{fmt_usd(shipping_amt)} (~{shipping_pct:.1f}% of revenue)."
+        )
     if "REFUND" in code:
-        return f"This may reflect post-purchase leakage, with refunds near {refund_pct:.1f}% of revenue."
+        return (
+            f"This may reflect post-purchase leakage, with refunds at "
+            f"{fmt_usd(refund_amt)} (~{refund_pct:.1f}% of revenue)."
+        )
     if "CONCENTRATION" in code:
         return "This suggests over-reliance on a narrow product or channel mix."
     if "LOW_ORDER_VALUE" in code or "AOV" in code or "BUNDLE" in code:

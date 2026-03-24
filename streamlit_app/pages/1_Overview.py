@@ -77,7 +77,7 @@ else:
             label = str(row.get("label") or key.title())
             amount = float(row.get("amount", 0.0) or 0.0)
             pct = float(row.get("pct_revenue", 0.0) or 0.0) * 100.0
-            st.metric(label, fmt_usd(amount), delta=f"{pct:.1f}% of revenue")
+            st.metric(label, f"{fmt_usd(amount)} ({pct:.1f}%)")
             desc = str(row.get("description") or "")
             if desc:
                 st.caption(desc)

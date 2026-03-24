@@ -58,7 +58,11 @@ else:
         st.dataframe(prettify_dataframe_columns(products_df.head(100)), use_container_width=True, height=420)
 
     with side:
-        st.metric("Top 3 SKU share", f"{dashboard.top_3_sku_share * 100:.1f}%")
+        top3_rev = float(getattr(dashboard, "top_3_line_revenue", 0.0) or 0.0)
+        prod_total = float(getattr(dashboard, "products_revenue_total", 0.0) or 0.0)
+        share_pct = float(dashboard.top_3_sku_share or 0.0) * 100.0
+        st.metric("Top 3 line revenue (share)", f"{fmt_usd(top3_rev)} ({share_pct:.1f}%)")
+        st.caption(f"Catalog line revenue total: {fmt_usd(prod_total)}")
         st.subheader("Revenue by SKU")
         st.bar_chart(dashboard.revenue_by_sku.head(20))
 
