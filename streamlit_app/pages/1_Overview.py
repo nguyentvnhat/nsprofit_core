@@ -9,6 +9,10 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from streamlit_pkg_bootstrap import ensure_streamlit_app_package
+
+ensure_streamlit_app_package(ROOT)
+
 import pandas as pd
 import streamlit as st
 
