@@ -17,7 +17,14 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, fmt_usd, render_footer, render_page_header
+from streamlit_app.ui_components import (
+    apply_saas_theme,
+    brand_page_icon,
+    fmt_usd,
+    prettify_dataframe_columns,
+    render_footer,
+    render_page_header,
+)
 
 st.set_page_config(page_title="Products — NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Products")
@@ -48,7 +55,7 @@ else:
     main, side = st.columns([2.2, 1])
     with main:
         st.subheader("Top products")
-        st.dataframe(products_df.head(100), use_container_width=True, height=420)
+        st.dataframe(prettify_dataframe_columns(products_df.head(100)), use_container_width=True, height=420)
 
     with side:
         st.metric("Top 3 SKU share", f"{dashboard.top_3_sku_share * 100:.1f}%")

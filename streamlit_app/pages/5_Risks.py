@@ -18,7 +18,13 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, render_footer, render_page_header
+from streamlit_app.ui_components import (
+    apply_saas_theme,
+    brand_page_icon,
+    prettify_dataframe_columns,
+    render_footer,
+    render_page_header,
+)
 
 st.set_page_config(page_title="Risks — NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Risks")
@@ -234,6 +240,6 @@ for severity in ("high", "medium", "low"):
         _render_risk_card(item)
 
     with st.expander("Show raw table"):
-        st.dataframe(pd.DataFrame(items), use_container_width=True, height=220)
+        st.dataframe(prettify_dataframe_columns(pd.DataFrame(items)), use_container_width=True, height=220)
 
 render_footer()

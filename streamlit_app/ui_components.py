@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 
@@ -37,6 +38,32 @@ def fmt_usd(value: float | int | None) -> str:
     if not math.isfinite(v):
         v = 0.0
     return f"${v:,.2f} USD"
+
+
+def humanize_column_label(name: str) -> str:
+    """Turn ``customer_email``-style names into ``Customer Email`` for table headers."""
+    s = str(name).strip()
+    if not s:
+        return s
+    return " ".join(part.capitalize() for part in s.split("_") if part)
+
+
+def prettify_dataframe_columns(df: Any) -> Any:
+    """Return a copy of a DataFrame with humanized column names (display only)."""
+    import pandas as pd
+
+    if not isinstance(df, pd.DataFrame):
+        return df
+    out = df.copy()
+    out.columns = [humanize_column_label(c) for c in out.columns]
+    return out
+
+
+def prettify_records_columns(rows: list[dict[Any, Any]]) -> list[dict[Any, Any]]:
+    """List-of-dicts rows with humanized keys (display only)."""
+    if not rows:
+        return rows
+    return [{humanize_column_label(str(k)): v for k, v in row.items()} for row in rows]
 
 
 def apply_saas_theme(current_page: str | None = None) -> None:

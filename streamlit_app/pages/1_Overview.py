@@ -18,7 +18,14 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, fmt_usd, render_footer, render_page_header
+from streamlit_app.ui_components import (
+    apply_saas_theme,
+    brand_page_icon,
+    fmt_usd,
+    prettify_dataframe_columns,
+    render_footer,
+    render_page_header,
+)
 
 st.set_page_config(page_title="Overview — NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Overview")
@@ -214,6 +221,6 @@ with st.expander("Recent orders preview"):
     if preview.empty:
         st.info("No recent orders available.")
     else:
-        st.dataframe(preview, use_container_width=True, height=320)
+        st.dataframe(prettify_dataframe_columns(preview), use_container_width=True, height=320)
 
 render_footer()

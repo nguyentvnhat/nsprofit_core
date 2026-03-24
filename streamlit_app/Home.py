@@ -17,7 +17,13 @@ import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import list_uploads, run_dashboard_pipeline
-from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, render_footer, render_page_header
+from streamlit_app.ui_components import (
+    apply_saas_theme,
+    brand_page_icon,
+    prettify_records_columns,
+    render_footer,
+    render_page_header,
+)
 
 st.set_page_config(page_title="NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Home")
@@ -57,7 +63,7 @@ if rows:
         index=default_idx,
     )
     st.session_state["active_upload_id"] = choice
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(prettify_records_columns(rows), use_container_width=True, hide_index=True)
 else:
     st.info("No uploads yet — ingest a CSV to begin.")
 
