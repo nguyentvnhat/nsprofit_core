@@ -477,7 +477,7 @@ def _why_now_sentence(
     else:
         urgency = "Priority: low."
 
-    return f"[Problem] {problem_prefix} {problem} [Impact in numbers] {impact} {urgency} [Action] {action}"
+    return f"{problem_prefix} {problem} {impact} {urgency} {action}"
 
 
 def _estimated_impact_text(

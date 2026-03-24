@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import re
 import sys
 from pathlib import Path
 
@@ -70,6 +71,66 @@ if not summary_rows:
 
 st.caption("Discount rate = discounts ÷ gross revenue (0–1) within each bucket. Currency amounts are USD.")
 
+def _build_local_text_pdf_bytes() -> bytes:
+    """
+    Tiny dependency-free PDF fallback.
+    Generates a plain one-page report so local export always works.
+    """
+    lines: list[str] = []
+    lines.append(f"NosaProfit - Campaigns report (upload {uid})")
+    lines.append("")
+    lines.append(f"Estimated loss (proxy): {fmt_usd(float((opp_summary or {}).get('total_estimated_loss') or 0.0))}")
+    lines.append(f"Opportunity (proxy): {fmt_usd(float((opp_summary or {}).get('total_opportunity_size') or 0.0))}")
+    lines.append(f"Top campaign: {str((opp_summary or {}).get('top_priority_campaign') or '-')}")
+    lines.append("")
+    lines.append("Top insights:")
+    for i, row in enumerate([r for r in enriched_all if isinstance(r, dict)][:20], start=1):
+        camp = str(row.get("campaign") or "unknown")
+        title = str(row.get("title") or "Insight")
+        impact = str(row.get("estimated_impact_text") or "")
+        lines.append(f"{i}. {camp} - {title}")
+        if impact:
+            lines.append(f"   Impact: {impact}")
+
+    def _esc(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    y = 810
+    content_ops = ["BT", "/F1 10 Tf", "40 810 Td", "14 TL"]
+    for ln in lines:
+        safe = _esc(ln.encode("latin-1", "replace").decode("latin-1"))
+        content_ops.append(f"({safe}) Tj")
+        content_ops.append("T*")
+        y -= 14
+        if y < 40:
+            break
+    content_ops.append("ET")
+    content = "\n".join(content_ops).encode("latin-1", "replace")
+
+    objs: list[bytes] = []
+    objs.append(b"<< /Type /Catalog /Pages 2 0 R >>")
+    objs.append(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>")
+    objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    objs.append(f"<< /Length {len(content)} >>\nstream\n".encode("latin-1") + content + b"\nendstream")
+
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for i, obj in enumerate(objs, start=1):
+        offsets.append(len(out))
+        out.extend(f"{i} 0 obj\n".encode("latin-1"))
+        out.extend(obj)
+        out.extend(b"\nendobj\n")
+    xref_pos = len(out)
+    out.extend(f"xref\n0 {len(objs)+1}\n".encode("latin-1"))
+    out.extend(b"0000000000 65535 f \n")
+    for off in offsets[1:]:
+        out.extend(f"{off:010d} 00000 n \n".encode("latin-1"))
+    out.extend(
+        f"trailer\n<< /Size {len(objs)+1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF".encode("latin-1")
+    )
+    return bytes(out)
+
 try:
     from streamlit_app.campaigns_report_pdf import build_campaigns_pdf_bytes
 
@@ -81,9 +142,13 @@ try:
         opp_summary=opp_summary if isinstance(opp_summary, dict) else {},
         signal_label_fn=signal_friendly_pair,
     )
-except Exception as exc:
+except Exception:
     _pdf_bytes = None
-    st.info(f"PDF export is unavailable in this environment ({exc}). Install dependencies to enable it.")
+    try:
+        _pdf_bytes = _build_local_text_pdf_bytes()
+    except Exception:
+        _pdf_bytes = None
+        st.info("PDF export is unavailable in this environment.")
 
 if _pdf_bytes:
     st.download_button(
@@ -125,24 +190,133 @@ def _top_actions(rows: list[dict], limit: int = 3) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for row in rows:
-        action = str(row.get("action") or "").strip()
-        if not action:
-            continue
-        key = action.lower()
+        action = _money_driven_action(row)
+        key = action.lower().strip()
         if key in seen:
             continue
         seen.add(key)
-        camp = str(row.get("campaign") or "unknown")
-        out.append(f"{action} (campaign: {camp})")
+        out.append(action)
         if len(out) >= limit:
             break
     return out
 
 
+def _short_title(title: str, max_words: int = 8) -> str:
+    words = str(title or "").split()
+    if len(words) <= max_words:
+        return " ".join(words)
+    return " ".join(words[:max_words]) + "..."
+
+
+def _operator_copy(text: str, max_len: int = 160) -> str:
+    raw = " ".join(str(text or "").strip().split())
+    if not raw:
+        return ""
+    raw = re.sub(r"\[(Problem|Impact in numbers|Action)\]\s*", "", raw, flags=re.IGNORECASE)
+    raw = raw.replace("c Impact:", "Impact:")
+    for bad, good in (
+        ("appears to be", "is"),
+        ("appears", "is"),
+        ("suggests that", "shows"),
+        ("suggests", "shows"),
+        ("may indicate", "indicates"),
+        ("driven by healthier basket economics", "with stronger basket value"),
+    ):
+        raw = raw.replace(bad, good).replace(bad.title(), good.capitalize())
+    first = raw.split(".")[0].strip()
+    out = first if first else raw
+    if len(out) > max_len:
+        out = out[: max_len - 1].rstrip() + "..."
+    return out
+
+
+def _clean_long_text(text: str, max_len: int = 500) -> str:
+    raw = " ".join(str(text or "").strip().split())
+    raw = re.sub(r"\[(Problem|Impact in numbers|Action)\]\s*", "", raw, flags=re.IGNORECASE)
+    raw = raw.replace("c Impact:", "Impact:")
+    if len(raw) > max_len:
+        return raw[: max_len - 1].rstrip() + "..."
+    return raw
+
+
+def _impact_tone(row: dict) -> tuple[str, str]:
+    loss = _f(row.get("estimated_loss"))
+    opp = _f(row.get("opportunity_size"))
+    if loss > 0 and loss >= opp:
+        return "#e03131", "#fff5f5"
+    if opp > 0:
+        return "#2b8a3e", "#ebfbee"
+    return "#6b7280", "#f8f9fa"
+
+
+def _money_driven_action(row: dict) -> str:
+    """Operator-style action with explicit dollar impact (direct or proxy)."""
+    code = str(row.get("signal_code") or "").upper()
+    title = str(row.get("title") or "").lower()
+    campaign = str(row.get("campaign") or "this campaign")
+    loss = max(_f(row.get("estimated_loss")), 0.0)
+    opp = max(_f(row.get("opportunity_size")), 0.0)
+    revenue = max(_f(row.get("impacted_revenue")), _f(row.get("revenue")))
+    blob = f"{code} {title}"
+
+    if "STACK" in blob or "DISCOUNT" in blob:
+        base = f"Reduce discount stacking in {campaign}"
+    elif "AOV" in blob or "LOW_ORDER_VALUE" in blob or "order value" in blob:
+        base = f"Increase AOV in {campaign}"
+    elif "UNSTABLE" in blob or "VOLAT" in blob:
+        base = f"Stabilize revenue pacing in {campaign}"
+    elif "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        base = f"Diversify channels/SKUs in {campaign}"
+    elif "LOW_REPEAT" in blob or "REPEAT" in blob:
+        base = f"Lift repeat rate in {campaign}"
+    else:
+        fallback = str(row.get("action") or "").strip()
+        base = fallback if fallback else f"Fix key campaign issue in {campaign}"
+
+    if loss > 0:
+        return f"{base} -> save ~{fmt_usd(loss)}"
+    if opp > 0:
+        return f"{base} -> gain ~{fmt_usd(opp)}"
+
+    # Proxy when direct dollar impact is not available.
+    if revenue <= 0:
+        return f"{base} -> no dollar estimate available"
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob:
+        proxy = revenue * 0.05
+        return f"Protect ~{fmt_usd(proxy)} revenue exposure by diversifying channels in {campaign}"
+    if "LOW_REPEAT" in blob or "REPEAT" in blob:
+        proxy = revenue * 0.08  # 5-10% proxy midpoint
+        return f"Recover ~{fmt_usd(proxy)} by improving repeat mix in {campaign}"
+    proxy = revenue * 0.05
+    return f"Protect ~{fmt_usd(proxy)} in {campaign} by tightening campaign controls"
+
+
 sorted_insights = _sort_insights([r for r in insights_rows if isinstance(r, dict)])
 top_3 = sorted_insights[:3]
 
-st.subheader("Top campaign opportunities")
+total_loss = _f((opp_summary or {}).get("total_estimated_loss"))
+total_opp = _f((opp_summary or {}).get("total_opportunity_size"))
+top_campaign_name = str((opp_summary or {}).get("top_priority_campaign") or "—")
+hero_title = (
+    f"You are losing {fmt_usd(total_loss)} from your campaigns"
+    if total_loss > 0
+    else f"You have {fmt_usd(total_opp)} in recoverable profit opportunities"
+)
+st.markdown(
+    (
+        "<div style='border:1px solid #e5e7eb; border-left:8px solid #e03131; border-radius:12px;"
+        "padding:16px 18px; background:#fff;'>"
+        f"<div style='font-size:1.55rem; font-weight:800; line-height:1.25;'>{html.escape(hero_title)}</div>"
+        f"<div style='margin-top:10px; color:#4b5563;'>"
+        f"Estimated loss: <strong>{fmt_usd(total_loss)}</strong> &nbsp;|&nbsp; "
+        f"Opportunity: <strong>{fmt_usd(total_opp)}</strong> &nbsp;|&nbsp; "
+        f"Top campaign: <strong>{html.escape(top_campaign_name)}</strong>"
+        "</div></div>"
+    ),
+    unsafe_allow_html=True,
+)
+
+st.markdown("### Top profit opportunities")
 if not top_3:
     st.info("No campaign-level insights in the ranked top slice.")
 else:
@@ -151,23 +325,24 @@ else:
         if idx >= len(top_3):
             continue
         row = top_3[idx]
-        label, color, bg = _priority_meta(str(row.get("priority") or "low"))
+        label, badge_color, _ = _priority_meta(str(row.get("priority") or "low"))
+        tone_color, tone_bg = _impact_tone(row)
         camp = html.escape(str(row.get("campaign") or "unknown"))
-        title = html.escape(str(row.get("title") or "Insight"))
+        title = html.escape(_short_title(str(row.get("title") or "Insight"), max_words=8))
         impact = html.escape(str(row.get("estimated_impact_text") or "No separate dollar proxy on this signal"))
-        why_now = html.escape(str(row.get("why_now") or "")[:190])
+        why_now = html.escape(_operator_copy(str(row.get("why_now") or ""), max_len=140))
         score = _f(row.get("priority_score"))
         with col:
             st.markdown(
                 (
                     "<div style='border:1px solid #e9ecef; border-left:6px solid "
-                    f"{color}; border-radius:10px; padding:12px; background:{bg}; min-height:230px;'>"
+                    f"{tone_color}; border-radius:10px; padding:12px; background:{tone_bg}; min-height:228px;'>"
                     f"<div style='display:flex;justify-content:space-between;gap:8px;'>"
                     f"<strong>#{idx + 1} · {camp}</strong>"
-                    f"<span style='background:{color};color:#fff;padding:2px 8px;border-radius:999px;font-size:12px;'>{label}</span>"
+                    f"<span style='background:{badge_color};color:#fff;padding:2px 8px;border-radius:999px;font-size:12px;'>{label}</span>"
                     "</div>"
                     f"<div style='margin-top:6px;font-size:14px;'>{title}</div>"
-                    f"<div style='margin-top:10px;font-size:21px;font-weight:700;color:#1f2937;'>{impact}</div>"
+                    f"<div style='margin-top:10px;font-size:23px;font-weight:800;color:{tone_color};'>{impact}</div>"
                     f"<div style='margin-top:8px;font-size:12px;color:#495057;'>Score {score:.1f}</div>"
                     f"<div style='margin-top:8px;font-size:12px;color:#495057;'>{why_now}</div>"
                     "</div>"
@@ -175,16 +350,8 @@ else:
                 unsafe_allow_html=True,
             )
 
-if isinstance(opp_summary, dict) and opp_summary:
-    r1, r2, r3 = st.columns(3)
-    r1.metric("Est. leakage (proxy)", fmt_usd(_f(opp_summary.get("total_estimated_loss"))))
-    r2.metric("Opportunity (proxy)", fmt_usd(_f(opp_summary.get("total_opportunity_size"))))
-    top_t = str(opp_summary.get("top_priority_title") or "—")
-    top_c = str(opp_summary.get("top_priority_campaign") or "—")
-    r3.metric("Top priority", top_t[:48] + ("…" if len(top_t) > 48 else ""), help=f"Campaign: {top_c}")
-
-st.markdown("#### Recommended actions")
-actions = _top_actions(sorted_insights, limit=3)
+st.markdown("### Fix these first")
+actions = _top_actions(top_3, limit=3)
 if not actions:
     st.caption("No action text available in current insight slice.")
 else:
@@ -192,53 +359,55 @@ else:
         st.markdown(f"{i}. {a}")
 
 st.divider()
-st.subheader("Top campaign insights (ranked)")
-if not sorted_insights:
-    st.info("No campaign-level insights in the ranked top slice.")
-else:
-    for row in sorted_insights:
-        label, color, bg = _priority_meta(str(row.get("priority") or "low"))
-        camp = str(row.get("campaign") or "unknown")
-        title = str(row.get("title") or "Insight")
-        rank = int(_f(row.get("rank"), default=0))
-        score = _f(row.get("priority_score"))
-        impact_txt = str(row.get("estimated_impact_text") or "No separate dollar proxy on this signal")
-        share_pct = _f(row.get("affected_revenue_share")) * 100.0
-        signal_code = str(row.get("signal_code") or "")
-        signal_label, signal_help = signal_friendly_pair(signal_code)
+with st.expander("Top campaign insights (ranked)", expanded=False):
+    if not sorted_insights:
+        st.info("No campaign-level insights in the ranked top slice.")
+    else:
+        for row in sorted_insights:
+            label, badge_color, _ = _priority_meta(str(row.get("priority") or "low"))
+            tone_color, tone_bg = _impact_tone(row)
+            camp = str(row.get("campaign") or "unknown")
+            title = str(row.get("title") or "Insight")
+            rank = int(_f(row.get("rank"), default=0))
+            score = _f(row.get("priority_score"))
+            impact_txt = str(row.get("estimated_impact_text") or "No separate dollar proxy on this signal")
+            share_pct = _f(row.get("affected_revenue_share")) * 100.0
+            signal_code = str(row.get("signal_code") or "")
+            signal_label, signal_help = signal_friendly_pair(signal_code)
 
-        with st.container(border=True):
-            st.markdown(
-                (
-                    "<div style='border-left:6px solid "
-                    f"{color}; background:{bg}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>"
-                    f"<div style='display:flex;justify-content:space-between;gap:8px; align-items:center;'>"
-                    f"<div><strong>{camp} — {title}</strong><br/># {rank} · score {score:.1f}</div>"
-                    f"<span style='background:{color};color:#fff;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;'>{label}</span>"
-                    "</div>"
-                    "</div>"
-                ),
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                st.markdown(
+                    (
+                        "<div style='border-left:6px solid "
+                        f"{tone_color}; background:{tone_bg}; border-radius:8px; padding:10px 12px; margin-bottom:8px;'>"
+                        f"<div style='display:flex;justify-content:space-between;gap:8px; align-items:center;'>"
+                        f"<div><strong>{camp} — {title}</strong><br/># {rank} · score {score:.1f}</div>"
+                        f"<span style='background:{badge_color};color:#fff;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;'>{label}</span>"
+                        "</div>"
+                        "</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
 
-            st.markdown(
-                f"<div style='font-size:21px; font-weight:700; color:#1f2937; margin-bottom:8px;'>{html.escape(impact_txt)}</div>",
-                unsafe_allow_html=True,
-            )
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Impacted revenue", fmt_usd(_f(row.get("impacted_revenue"))))
-            m2.metric("Estimated loss", fmt_usd(_f(row.get("estimated_loss"))))
-            m3.metric("Opportunity size", fmt_usd(_f(row.get("opportunity_size"))))
-            m4.metric("Share of revenue", f"{share_pct:.1f}%")
+                st.markdown(
+                    f"<div style='font-size:22px; font-weight:800; color:{tone_color}; margin-bottom:8px;'>{html.escape(impact_txt)}</div>",
+                    unsafe_allow_html=True,
+                )
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Impacted revenue", fmt_usd(_f(row.get("impacted_revenue"))))
+                m2.metric("Estimated loss", fmt_usd(_f(row.get("estimated_loss"))))
+                m3.metric("Opportunity size", fmt_usd(_f(row.get("opportunity_size"))))
+                m4.metric("Share of revenue", f"{share_pct:.1f}%")
 
-            st.markdown(f"**Why now:** {str(row.get('why_now') or '')}")
-            st.caption(
-                f"Priority: {label} · {str(row.get('category') or '')} · Signal: {signal_label}"
-            )
-            if signal_help:
-                st.caption(signal_help)
-            if str(row.get("summary") or "").strip():
-                st.write(str(row.get("summary") or ""))
+                clean_why = _clean_long_text(str(row.get("why_now") or ""), max_len=420)
+                st.markdown(f"**Why now:** {clean_why}")
+                st.caption(
+                    f"Priority: {label} · {str(row.get('category') or '')} · Signal: {signal_label}"
+                )
+                if signal_help:
+                    st.caption(signal_help)
+                if str(row.get("summary") or "").strip():
+                    st.write(_operator_copy(str(row.get("summary") or ""), max_len=220))
 
 st.divider()
 df = pd.DataFrame(summary_rows)
@@ -248,49 +417,54 @@ if not df.empty and "discount_rate" in df.columns:
     df = df.drop(columns=["discount_rate"], errors="ignore")
 
 display_df = prettify_dataframe_columns(df)
-st.subheader("Summary by campaign")
-st.dataframe(
-    display_df,
-    use_container_width=True,
-    height=min(420, 48 + len(summary_rows) * 36),
-    hide_index=True,
-)
+with st.expander("Campaign summary table", expanded=False):
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        height=min(420, 48 + len(summary_rows) * 36),
+        hide_index=True,
+    )
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Campaign buckets", len(summary_rows))
-if not df.empty and "orders" in df.columns:
-    c2.metric("Orders in view", int(df["orders"].sum()))
-if not df.empty and "net_revenue" in summary_rows[0]:
-    total_net = sum(float(r.get("net_revenue") or 0) for r in summary_rows)
-    c3.metric("Net revenue (summed)", fmt_usd(total_net))
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Campaign buckets", len(summary_rows))
+    if not df.empty and "orders" in df.columns:
+        c2.metric("Orders in view", int(df["orders"].sum()))
+    if not df.empty and "net_revenue" in summary_rows[0]:
+        total_net = sum(float(r.get("net_revenue") or 0) for r in summary_rows)
+        c3.metric("Net revenue (summed)", fmt_usd(total_net))
 
-st.subheader("High-severity signals by campaign")
-if not risks_rows:
-    st.info("No high-severity campaign-level signals in the current top slice.")
-else:
-    rdf = pd.DataFrame(risks_rows)
-    if not rdf.empty and "signal_code" in rdf.columns:
-        rdf = rdf.copy()
-        rdf.insert(
-            0,
-            "plain_language",
-            rdf["signal_code"].map(lambda c: signal_friendly_pair(str(c))[0]),
-        )
-    cols = [
-        c
-        for c in (
-            "campaign",
-            "plain_language",
-            "signal_code",
-            "severity",
-            "entity_type",
-            "signal_value",
-            "threshold_value",
-        )
-        if c in rdf.columns
-    ]
-    if cols:
-        st.dataframe(prettify_dataframe_columns(rdf[cols]), use_container_width=True, hide_index=True, height=280)
+with st.expander("High-severity signals table", expanded=False):
+    if not risks_rows:
+        st.info("No high-severity campaign-level signals in the current top slice.")
+    else:
+        rdf = pd.DataFrame(risks_rows)
+        if not rdf.empty and "signal_code" in rdf.columns:
+            rdf = rdf.copy()
+            rdf.insert(
+                0,
+                "plain_language",
+                rdf["signal_code"].map(lambda c: signal_friendly_pair(str(c))[0]),
+            )
+        cols = [
+            c
+            for c in (
+                "campaign",
+                "plain_language",
+                "signal_code",
+                "severity",
+                "entity_type",
+                "signal_value",
+                "threshold_value",
+            )
+            if c in rdf.columns
+        ]
+        if cols:
+            st.dataframe(
+                prettify_dataframe_columns(rdf[cols]),
+                use_container_width=True,
+                hide_index=True,
+                height=280,
+            )
 
 with st.expander("Per-campaign detail (pick a bucket)"):
     if not campaign_results:
@@ -368,7 +542,7 @@ with st.expander("Per-campaign detail (pick a bucket)"):
                     sc = row.get("priority_score", "")
                     head = f"#{rk} · score {sc}" if rk != "" and sc != "" else ""
                     with st.expander(f"**{title}**  \n_{head}_"):
-                        st.markdown(f"**Why now:** {str(row.get('why_now') or '')}")
+                        st.markdown(f"**Why now:** {_clean_long_text(str(row.get('why_now') or ''), max_len=420)}")
                         im1, im2, im3, im4 = st.columns(4)
                         im1.metric("Impacted revenue", fmt_usd(float(row.get("impacted_revenue") or 0)))
                         im2.metric("Est. loss (proxy)", fmt_usd(float(row.get("estimated_loss") or 0)))
