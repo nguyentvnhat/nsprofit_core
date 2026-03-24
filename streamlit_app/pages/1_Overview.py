@@ -25,6 +25,7 @@ from streamlit_app.ui_components import (
     prettify_dataframe_columns,
     render_footer,
     render_page_header,
+    signal_friendly_pair,
 )
 
 st.set_page_config(page_title="Overview — NosaProfit", page_icon=brand_page_icon(), layout="wide")
@@ -184,6 +185,7 @@ else:
     st.caption("High-priority risk signals")
     for item in high_risks[:2]:
         signal_code = str(item.get("signal_code") or "UNKNOWN")
+        sig_lab, _sig_hlp = signal_friendly_pair(signal_code)
         signal_value = float(item.get("signal_value") or 0.0)
         threshold_value = float(item.get("threshold_value") or 0.0)
         entity_type = str(item.get("entity_type") or "overall")
@@ -191,7 +193,7 @@ else:
         entity_label = str(entity_key) if entity_key not in (None, "") else "-"
 
         c1, c2, c3, c4, c5 = st.columns([2.2, 1.2, 1.2, 1.2, 1.2])
-        c1.markdown(f"**{signal_code}**")
+        c1.markdown(f"**{sig_lab}**")
         c2.markdown(f"Value: `{signal_value:,.2f}`")
         c3.markdown(f"Threshold: `{threshold_value:,.2f}`")
         c4.markdown(f"Type: `{entity_type}`")

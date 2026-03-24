@@ -19,8 +19,11 @@ from app.repositories.signal_repository import SignalRepository
 from app.services.campaign_analyzer import (
     analyze_campaigns,
     campaign_summary_table_rows,
-    top_campaign_insights,
     top_campaign_risks,
+)
+from app.services.campaign_insight_enricher import (
+    build_campaign_opportunity_summary,
+    enrich_campaign_insights,
 )
 from app.services.campaign_extractor import parse_campaign_notes
 from app.services.pipeline import process_shopify_csv
@@ -53,6 +56,8 @@ class DashboardData:
     campaign_summary_table: list[dict[str, Any]]
     top_campaign_risks: list[dict[str, Any]]
     top_campaign_insights: list[dict[str, Any]]
+    enriched_campaign_insights: list[dict[str, Any]]
+    campaign_opportunity_summary: dict[str, Any]
 
 
 def _latest_upload_id(session: Session) -> int | None:
@@ -110,13 +115,17 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
     campaign_summary_table: list[dict[str, Any]] = []
     top_c_risks: list[dict[str, Any]] = []
     top_c_insights: list[dict[str, Any]] = []
+    enriched_campaign_insights: list[dict[str, Any]] = []
+    campaign_opportunity_summary: dict[str, Any] = {}
     try:
         ods, its, custs = _load_upload_dataset_for_campaigns(session, uid)
         if ods:
             campaign_results = analyze_campaigns(ods, its, custs)
             campaign_summary_table = campaign_summary_table_rows(campaign_results)
             top_c_risks = top_campaign_risks(campaign_results)
-            top_c_insights = top_campaign_insights(campaign_results)
+            enriched_campaign_insights = enrich_campaign_insights(campaign_results)
+            campaign_opportunity_summary = build_campaign_opportunity_summary(enriched_campaign_insights)
+            top_c_insights = enriched_campaign_insights[:10]
     except Exception as exc:  # noqa: BLE001 — optional dimension layer must not break dashboard
         logger.warning("Campaign analysis skipped for upload_id=%s: %s", uid, exc)
 
@@ -168,6 +177,8 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
         campaign_summary_table=campaign_summary_table,
         top_campaign_risks=top_c_risks,
         top_campaign_insights=top_c_insights,
+        enriched_campaign_insights=enriched_campaign_insights,
+        campaign_opportunity_summary=campaign_opportunity_summary,
     )
 
 

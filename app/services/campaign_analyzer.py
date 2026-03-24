@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.services.campaign_extractor import group_orders_by_campaign
+from app.services.campaign_insight_enricher import extract_rule_signal_codes
 from app.services.metrics_engine import metrics_as_flat_dict, run_all_metrics
 from app.services.narrative_engine import narrate_all
 from app.services.rules_engine import evaluate_rules
@@ -118,7 +119,9 @@ def analyze_campaigns(
         narrated = narrate_all(payloads)
 
         insights_out: list[dict[str, Any]] = []
-        for n in narrated:
+        for n, p in zip(narrated, payloads):
+            rule_obj = p.context.get("rule") if isinstance(p.context, dict) else None
+            rule_signal_codes = extract_rule_signal_codes(rule_obj if isinstance(rule_obj, dict) else None)
             insights_out.append(
                 {
                     "insight_code": n.rule_code,
@@ -128,6 +131,7 @@ def analyze_campaigns(
                     "summary": n.summary,
                     "implication": n.implication,
                     "action": n.action,
+                    "rule_signal_codes": rule_signal_codes,
                 }
             )
 
