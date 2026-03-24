@@ -1756,3 +1756,260 @@ REQUIREMENTS:
 6. Handle empty groups gracefully.
 
 7. Keep the page concise and polished.
+
+
+######################################################
+#Prompt 17 
+You are a senior Python data engineer and product architect.
+
+Continue the CURRENT NosaProfit codebase in the current folder.
+
+IMPORTANT:
+- Reuse the existing architecture
+- Do NOT redesign the project
+- Do NOT break the current pipeline
+- Do NOT move business logic into Streamlit
+- Do NOT modify existing metrics/signal/rules/insight logic unless absolutely necessary
+- Treat campaign analysis as an additional dimension layer on top of the current system
+
+CURRENT PIPELINE:
+orders -> metrics -> signals -> rules -> insights
+
+GOAL:
+Add a "Campaign Dimension Layer" so the existing pipeline can run per campaign, without breaking the overall store-level analysis.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Implement campaign-based analysis for NosaProfit so we can answer:
+
+- Which campaign is driving revenue?
+- Which campaign is too dependent on discounts?
+- Which campaign has weak order quality?
+- Which campaign should be scaled, optimized, or stopped?
+
+The implementation must support:
+
+1. campaign extraction from normalized order data
+2. grouping orders by campaign
+3. running the existing analysis pipeline per campaign
+4. returning structured campaign-level results
+5. preparing campaign-level summary data for Streamlit/dashboard usage
+
+==================================================
+ARCHITECTURAL RULES
+==================================================
+
+1. DO NOT rewrite the current engines.
+2. DO NOT hardcode campaign-specific business rules inside metrics_engine, signal_engine, or rules_engine.
+3. Campaign must be treated as a dimension, not as a special-case logic branch.
+4. Add a thin orchestration layer only.
+5. Keep code modular, typed, production-minded, and easy to extend.
+6. Preserve existing overall analysis behavior.
+
+==================================================
+FILES TO ADD OR UPDATE
+==================================================
+
+Create or update only these files if needed:
+
+app/services/campaign_extractor.py
+app/services/campaign_analyzer.py
+app/services/dashboard_service.py
+
+If needed, you may also make minimal safe updates to:
+app/services/shopify_normalizer.py
+
+Do not touch Streamlit pages yet unless required for compatibility.
+
+==================================================
+1. CAMPAIGN EXTRACTION
+==================================================
+
+Create:
+app/services/campaign_extractor.py
+
+Implement a reusable campaign extraction layer.
+
+Expected function(s):
+
+def extract_campaign_key(order: dict) -> str:
+    ...
+
+def group_orders_by_campaign(orders: list[dict]) -> dict[str, list[dict]]:
+    ...
+
+Requirements:
+
+- Extract campaign from available normalized order fields
+- Use a fallback priority chain
+- Return a normalized campaign key string
+- Never crash on missing fields
+- Unknown/empty values should map to "unknown"
+
+Recommended fallback priority:
+1. utm_campaign
+2. landing_site
+3. referrer
+4. source_name
+5. discount_code
+6. "unknown"
+
+Also:
+- normalize whitespace
+- lowercase campaign keys
+- trim overly long raw values if needed
+- keep implementation deterministic
+
+==================================================
+2. CAMPAIGN ANALYZER
+==================================================
+
+Create:
+app/services/campaign_analyzer.py
+
+Implement orchestration that runs the existing analysis pipeline per campaign.
+
+Expected function:
+
+def analyze_campaigns(
+    orders: list[dict],
+    order_items: list[dict],
+    customers: list[dict],
+) -> list[dict]:
+    ...
+
+Requirements:
+
+- Group orders by campaign
+- Map related order_items to each campaign using order_id / external_order_id
+- Map related customers if possible
+- For each campaign:
+    - compute metrics using existing metrics engine
+    - generate signals using existing signal engine
+    - evaluate rules using existing rules engine
+    - generate insights using existing narrative/insight layer
+- Return structured campaign-level results
+
+Each campaign result should look like:
+
+{
+  "campaign": "facebook_ads",
+  "order_count": 120,
+  "metrics": {...},
+  "signals": [...],
+  "insights": [...],
+  "summary": {
+    "revenue": 12345.67,
+    "net_revenue": 10222.10,
+    "discount_rate": 0.18,
+    "aov": 85.20,
+    "risk_level": "high"
+  }
+}
+
+Risk level suggestion:
+- high if any high severity signals exist
+- medium if any medium severity signals exist
+- low otherwise
+
+Do not hardcode too much domain logic.
+Keep it lightweight and derived from existing results.
+
+==================================================
+3. DASHBOARD SERVICE INTEGRATION
+==================================================
+
+Update:
+app/services/dashboard_service.py
+
+Goal:
+Expose campaign analysis results in the dashboard service output without breaking existing behavior.
+
+Requirements:
+
+- Keep the current dashboard data structure working
+- Add campaign-related fields in a backward-compatible way
+- If no campaign data can be derived, return empty/default values gracefully
+
+Suggested additional output fields:
+
+campaign_results: list[dict]
+campaign_summary_table: list[dict]
+top_campaign_risks: list[dict]
+top_campaign_insights: list[dict]
+
+campaign_summary_table row format:
+
+[
+  {
+    "campaign": "facebook_ads",
+    "orders": 120,
+    "revenue": 12345.67,
+    "net_revenue": 10222.10,
+    "discount_rate": 0.18,
+    "aov": 85.20,
+    "risk_level": "high"
+  }
+]
+
+top_campaign_risks:
+- flatten top high-severity campaign signals
+- include campaign name in each row
+
+top_campaign_insights:
+- flatten top campaign insights
+- include campaign name in each row
+
+==================================================
+4. DATA COMPATIBILITY
+==================================================
+
+The code must work with the current normalized data shape as much as possible.
+
+If normalized orders currently do not contain campaign-friendly fields, make only minimal safe additions in shopify_normalizer.py to preserve fields such as:
+
+- utm_campaign
+- landing_site
+- referrer
+- source_name
+- discount_code
+
+Do not refactor the whole normalizer.
+
+==================================================
+5. SAFETY / QUALITY RULES
+==================================================
+
+- Use type hints
+- Keep functions small
+- Add concise docstrings
+- Handle missing keys safely
+- Avoid side effects
+- Avoid DB writes in this layer
+- No TODO placeholders
+- No pseudo-code
+- Code must be directly runnable
+
+==================================================
+6. OUTPUT FORMAT
+==================================================
+
+Return:
+1. each file path changed
+2. full code for each changed file
+3. brief explanation per file
+4. preserve existing imports and style where possible
+
+==================================================
+SUCCESS CRITERIA
+==================================================
+
+The implementation is successful if:
+
+- overall store-level pipeline still works
+- campaign-level analysis runs without breaking existing logic
+- campaign summary table can be rendered in Streamlit later
+- high-risk / high-discount campaigns are visible from structured output
+- architecture remains clean and extensible

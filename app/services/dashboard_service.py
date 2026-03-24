@@ -16,6 +16,13 @@ from app.models.upload import Upload
 from app.repositories import InsightRepository, OrderRepository, UploadRepository
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.signal_repository import SignalRepository
+from app.services.campaign_analyzer import (
+    analyze_campaigns,
+    campaign_summary_table_rows,
+    top_campaign_insights,
+    top_campaign_risks,
+)
+from app.services.campaign_extractor import parse_campaign_notes
 from app.services.pipeline import process_shopify_csv
 
 logger = logging.getLogger(__name__)
@@ -42,6 +49,10 @@ class DashboardData:
     money_summary: dict[str, float | str]
     quick_wins: list[dict[str, Any]]
     loss_drivers: list[dict[str, Any]]
+    campaign_results: list[dict[str, Any]]
+    campaign_summary_table: list[dict[str, Any]]
+    top_campaign_risks: list[dict[str, Any]]
+    top_campaign_insights: list[dict[str, Any]]
 
 
 def _latest_upload_id(session: Session) -> int | None:
@@ -94,6 +105,21 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
         signals_by_severity=signals_by_severity,
     )
     quick_wins = _build_quick_wins(insights, signals_by_severity, money_summary)
+
+    campaign_results: list[dict[str, Any]] = []
+    campaign_summary_table: list[dict[str, Any]] = []
+    top_c_risks: list[dict[str, Any]] = []
+    top_c_insights: list[dict[str, Any]] = []
+    try:
+        ods, its, custs = _load_upload_dataset_for_campaigns(session, uid)
+        if ods:
+            campaign_results = analyze_campaigns(ods, its, custs)
+            campaign_summary_table = campaign_summary_table_rows(campaign_results)
+            top_c_risks = top_campaign_risks(campaign_results)
+            top_c_insights = top_campaign_insights(campaign_results)
+    except Exception as exc:  # noqa: BLE001 — optional dimension layer must not break dashboard
+        logger.warning("Campaign analysis skipped for upload_id=%s: %s", uid, exc)
+
     logger.debug(
         "Dashboard payload built upload_id=%s metrics=%s signals(high/med/low)=(%s/%s/%s) insights=%s",
         uid,
@@ -138,6 +164,10 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
         money_summary=money_summary,
         quick_wins=quick_wins,
         loss_drivers=loss_drivers,
+        campaign_results=campaign_results,
+        campaign_summary_table=campaign_summary_table,
+        top_campaign_risks=top_c_risks,
+        top_campaign_insights=top_c_insights,
     )
 
 
@@ -150,6 +180,82 @@ def _load_metric_snapshots(session: Session, upload_id: int) -> dict[str, float]
         if s.period_type == "all_time" and s.dimension_1 is None and s.dimension_2 is None:
             out[s.metric_code] = float(s.metric_value)
     return out
+
+
+def _load_upload_dataset_for_campaigns(
+    session: Session, upload_id: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Rebuild normalized-shape dicts (orders, line items, customers) for in-memory campaign slicing.
+
+    Aligns with :func:`normalize_shopify_data` / metrics engine expectations (Decimals on money fields).
+    """
+    orders = OrderRepository(session).list_orders_for_upload(
+        upload_id,
+        include_items=True,
+        include_customer=True,
+        limit=5000,
+    )
+    order_dicts: list[dict[str, Any]] = []
+    item_dicts: list[dict[str, Any]] = []
+    customers_map: dict[str, dict[str, Any]] = {}
+
+    for o in orders:
+        camp = parse_campaign_notes(o.notes)
+        od: dict[str, Any] = {
+            "order_name": o.order_name,
+            "external_order_id": o.external_order_id,
+            "order_date": o.order_date,
+            "currency": o.currency,
+            "financial_status": o.financial_status,
+            "fulfillment_status": o.fulfillment_status,
+            "source_name": o.source_name,
+            "shipping_country": o.shipping_country,
+            "subtotal_price": o.subtotal_price,
+            "discount_amount": o.discount_amount,
+            "shipping_amount": o.shipping_amount,
+            "tax_amount": o.tax_amount,
+            "refunded_amount": o.refunded_amount,
+            "total_price": o.total_price,
+            "net_revenue": o.net_revenue,
+            "total_quantity": o.total_quantity,
+            "is_cancelled": o.is_cancelled,
+            "is_repeat_customer": o.is_repeat_customer,
+            "customer_email": o.customer.email if o.customer else None,
+        }
+        od.update(camp)
+        order_dicts.append(od)
+
+        if o.customer and o.customer.email:
+            ce = str(o.customer.email).strip()
+            if ce and ce not in customers_map:
+                fn = o.customer.first_name or ""
+                ln = o.customer.last_name or ""
+                disp = " ".join(p for p in (fn, ln) if p).strip() or None
+                customers_map[ce] = {
+                    "email": ce,
+                    "name": disp,
+                    "shopify_customer_id": o.customer.external_id,
+                }
+
+        for it in o.items or []:
+            item_dicts.append(
+                {
+                    "order_name": o.order_name,
+                    "sku": it.sku,
+                    "product_name": it.product_name,
+                    "variant_name": it.variant_name,
+                    "vendor": it.vendor,
+                    "quantity": it.quantity,
+                    "unit_price": it.unit_price,
+                    "line_discount_amount": it.line_discount_amount,
+                    "line_total": it.line_total,
+                    "net_line_revenue": it.net_line_revenue,
+                    "requires_shipping": it.requires_shipping,
+                }
+            )
+
+    return order_dicts, item_dicts, list(customers_map.values())
 
 
 def _build_orders_table(session: Session, upload_id: int) -> pd.DataFrame:

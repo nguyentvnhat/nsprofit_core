@@ -204,7 +204,7 @@ def apply_saas_theme(current_page: str | None = None) -> None:
 
 
 def _render_sidebar_menu(current_page: str | None = None) -> None:
-    labels = ["Home", "Overview", "Orders", "Products", "Customers", "Risks", "Insights"]
+    labels = ["Home", "Overview", "Orders", "Products", "Customers", "Risks", "Insights", "Campaigns"]
     page_paths = {
         "Home": "Home.py",
         "Overview": "pages/1_Overview.py",
@@ -213,6 +213,7 @@ def _render_sidebar_menu(current_page: str | None = None) -> None:
         "Customers": "pages/4_Customers.py",
         "Risks": "pages/5_Risks.py",
         "Insights": "pages/6_Insights.py",
+        "Campaigns": "pages/7_Campaigns.py",
     }
 
     with st.sidebar:
@@ -228,7 +229,16 @@ def _render_sidebar_menu(current_page: str | None = None) -> None:
                 menu_title=None,
                 options=labels,
                 default_index=labels.index(current_page) if current_page in labels else 0,
-                icons=["house", "speedometer2", "receipt", "box-seam", "people", "shield-exclamation", "lightbulb"],
+                icons=[
+                    "house",
+                    "speedometer2",
+                    "receipt",
+                    "box-seam",
+                    "people",
+                    "shield-exclamation",
+                    "lightbulb",
+                    "megaphone",
+                ],
                 styles={
                     "container": {"padding": "0!important", "background-color": "transparent"},
                     "nav-link": {
