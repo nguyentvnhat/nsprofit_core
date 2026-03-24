@@ -182,6 +182,25 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
     )
 
 
+def export_executive_report(
+    session: Session,
+    *,
+    output_path: str,
+    upload_id: int | None = None,
+) -> str:
+    """
+    Export executive PDF report from existing dashboard payload.
+
+    This is a thin orchestration wrapper:
+    - reuses :func:`get_dashboard_data`
+    - delegates report rendering to ``pdf_export_service``
+    """
+    dashboard_data = get_dashboard_data(session, upload_id=upload_id)
+    from app.services.pdf_export_service import export_executive_report_pdf
+
+    return export_executive_report_pdf(dashboard_data, output_path=output_path)
+
+
 def _load_metric_snapshots(session: Session, upload_id: int) -> dict[str, float]:
     rows = MetricRepository(session).list_for_upload(upload_id)
     out: dict[str, float] = {}

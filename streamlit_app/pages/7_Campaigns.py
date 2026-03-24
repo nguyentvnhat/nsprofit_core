@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +28,7 @@ from streamlit_app.ui_components import (
     prettify_dataframe_columns,
     render_footer,
     render_page_header,
+    signal_desc,
     signal_friendly_pair,
 )
 
@@ -82,6 +84,8 @@ def _build_local_text_pdf_bytes() -> bytes:
     lines.append(f"Estimated loss (proxy): {fmt_usd(float((opp_summary or {}).get('total_estimated_loss') or 0.0))}")
     lines.append(f"Opportunity (proxy): {fmt_usd(float((opp_summary or {}).get('total_opportunity_size') or 0.0))}")
     lines.append(f"Top campaign: {str((opp_summary or {}).get('top_priority_campaign') or '-')}")
+    lines.append("")
+    lines.append("NosaProfit - Provider by Uway Technology")
     lines.append("")
     lines.append("Top insights:")
     for i, row in enumerate([r for r in enriched_all if isinstance(r, dict)][:20], start=1):
@@ -141,6 +145,7 @@ try:
         risks_rows=risks_rows,
         opp_summary=opp_summary if isinstance(opp_summary, dict) else {},
         signal_label_fn=signal_friendly_pair,
+        signal_desc_fn=signal_desc,
     )
 except Exception:
     _pdf_bytes = None
@@ -249,6 +254,36 @@ def _impact_tone(row: dict) -> tuple[str, str]:
     return "#6b7280", "#f8f9fa"
 
 
+def _impact_basis(row: dict) -> tuple[str, str]:
+    """
+    Return (basis_code, display_label) describing whether money number is measured or proxy.
+    """
+    code = str(row.get("signal_code") or "").upper()
+    title = str(row.get("title") or "").lower()
+    loss = max(_f(row.get("estimated_loss")), 0.0)
+    opp = max(_f(row.get("opportunity_size")), 0.0)
+    blob = f"{code} {title}"
+
+    if "REFUND" in blob and loss > 0:
+        return "measured_refunds", "Measured"
+    if ("PRICING" in blob or "DISCOUNT" in blob or "AOV" in blob or "LOW_ORDER_VALUE" in blob or "UNSTABLE" in blob or "VOLUME_DRIVEN" in blob) and (loss > 0 or opp > 0):
+        return "estimated_proxy_formula", "Estimated (proxy)"
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob or "LOW_REPEAT" in blob or "REPEAT" in blob:
+        return "estimated_proxy_exposure", "Estimated (proxy)"
+    return "no_direct_dollar_model", "Estimated (proxy)"
+
+
+def _basis_note(row: dict) -> str:
+    basis, _ = _impact_basis(row)
+    if basis == "measured_refunds":
+        return "Basis: measured refund amount from revenue metrics."
+    if basis == "estimated_proxy_formula":
+        return "Basis: deterministic proxy from campaign metrics (discount/AOV/growth formulas)."
+    if basis == "estimated_proxy_exposure":
+        return "Basis: exposure proxy from impacted revenue (5-10% guardrail)."
+    return "Basis: no direct dollar model; qualitative risk only."
+
+
 def _money_driven_action(row: dict) -> str:
     """Operator-style action with explicit dollar impact (direct or proxy)."""
     code = str(row.get("signal_code") or "").upper()
@@ -269,9 +304,19 @@ def _money_driven_action(row: dict) -> str:
         base = f"Diversify channels/SKUs in {campaign}"
     elif "LOW_REPEAT" in blob or "REPEAT" in blob:
         base = f"Lift repeat rate in {campaign}"
+    elif "BUNDLE" in blob or "PAIR" in blob:
+        base = f"Launch bundle/paired offer in {campaign}"
+    elif "SHIPPING" in blob or "FREE_SHIP" in blob or "THRESHOLD" in blob:
+        base = f"Adjust free-shipping threshold and cart nudges in {campaign}"
+    elif "REFUND" in blob or "RETURN" in blob:
+        base = f"Reduce refund drivers in {campaign}"
     else:
         fallback = str(row.get("action") or "").strip()
-        base = fallback if fallback else f"Fix key campaign issue in {campaign}"
+        if fallback:
+            fallback = re.sub(r"(?i)^action:\s*", "", fallback).strip(" .")
+            base = f"{fallback} in {campaign}" if campaign.lower() not in fallback.lower() else fallback
+        else:
+            base = f"Tighten targeting and offer design in {campaign}"
 
     if loss > 0:
         return f"{base} -> save ~{fmt_usd(loss)}"
@@ -289,6 +334,49 @@ def _money_driven_action(row: dict) -> str:
         return f"Recover ~{fmt_usd(proxy)} by improving repeat mix in {campaign}"
     proxy = revenue * 0.05
     return f"Protect ~{fmt_usd(proxy)} in {campaign} by tightening campaign controls"
+
+
+def _upcoming_campaign_calendar(today: date | None = None, limit: int = 6) -> list[dict[str, str]]:
+    d0 = today or date.today()
+    # Mixed retail calendar (VN + ecommerce shopping events), deterministic and timezone-agnostic.
+    events = [
+        (1, 1, "New Year", "Clear old stock without killing margin", "Only discount slow-moving SKUs; keep best sellers at normal price."),
+        (2, 14, "Valentine's Day", "Increase basket value", "Use gift bundles and cap voucher depth by channel."),
+        (3, 8, "International Women's Day", "Grow revenue from gift sets", "Push combo offers before event day; avoid site-wide deep discount."),
+        (4, 30, "Reunification Day (VN)", "Scale paid traffic safely", "Raise budget only on campaigns meeting margin floor."),
+        (5, 1, "Labor Day", "Protect profit during short promo", "Run shorter flash windows and pause low-margin ad sets."),
+        (6, 6, "Mid-Year Mega Sale 6.6", "Maximize volume with controlled discount", "Prioritize high-margin SKUs and stop coupon stacking."),
+        (7, 7, "Mega Sale 7.7", "Lift AOV", "Set free-ship threshold above current AOV and upsell add-ons."),
+        (8, 8, "Mega Sale 8.8", "Avoid margin-negative scale", "Bid down or pause SKUs/campaigns with weak contribution margin."),
+        (9, 9, "Mega Sale 9.9", "Win incremental profit, not just gross sales", "Compare event revenue versus baseline after promo costs."),
+        (10, 10, "Mega Sale 10.10", "Find best promo depth", "A/B test discount levels and keep the strongest net-margin variant."),
+        (11, 11, "Singles' Day 11.11", "Capture peak demand efficiently", "Pre-book spend to proven campaigns and throttle losers fast."),
+        (11, 29, "Black Friday / Cyber Monday window", "Prevent leakage at peak traffic", "Monitor margin every few hours and enforce stop-loss rules."),
+        (12, 12, "Mega Sale 12.12", "Close year with profitable growth", "Use margin-based campaign caps and protect repeat buyers."),
+        (12, 24, "Christmas / Year-end gifting", "Monetize gifting demand", "Push gift bundles and prioritize high-LTV customer segments."),
+    ]
+    out: list[dict[str, str]] = []
+    for month, day, name, focus, do_now in events:
+        year = d0.year
+        try:
+            evt = date(year, month, day)
+        except ValueError:
+            continue
+        if evt < d0:
+            evt = date(year + 1, month, day)
+        days_left = (evt - d0).days
+        out.append(
+            {
+                "date": evt.strftime("%Y-%m-%d"),
+                "name": name,
+                "days_left": f"D-{days_left}",
+                "focus": focus,
+                "do_now": do_now,
+                "success_check": "Success check: margin % does not drop, net revenue grows, CAC stays in target, refund rate does not spike.",
+            }
+        )
+    out.sort(key=lambda x: x["date"])
+    return out[:limit]
 
 
 sorted_insights = _sort_insights([r for r in insights_rows if isinstance(r, dict)])
@@ -315,6 +403,7 @@ st.markdown(
     ),
     unsafe_allow_html=True,
 )
+st.caption("Money labels: 'Measured' = direct metric amount; 'Estimated (proxy)' = deterministic formula from campaign metrics.")
 
 st.markdown("### Top profit opportunities")
 if not top_3:
@@ -333,6 +422,7 @@ else:
         why_now = html.escape(_operator_copy(str(row.get("why_now") or ""), max_len=140))
         score = _f(row.get("priority_score"))
         with col:
+            _, basis_label = _impact_basis(row)
             st.markdown(
                 (
                     "<div style='border:1px solid #e9ecef; border-left:6px solid "
@@ -344,6 +434,7 @@ else:
                     f"<div style='margin-top:6px;font-size:14px;'>{title}</div>"
                     f"<div style='margin-top:10px;font-size:23px;font-weight:800;color:{tone_color};'>{impact}</div>"
                     f"<div style='margin-top:8px;font-size:12px;color:#495057;'>Score {score:.1f}</div>"
+                    f"<div style='margin-top:4px;font-size:11px;color:#6b7280;'>Money basis: {basis_label}</div>"
                     f"<div style='margin-top:8px;font-size:12px;color:#495057;'>{why_now}</div>"
                     "</div>"
                 ),
@@ -357,6 +448,13 @@ if not actions:
 else:
     for i, a in enumerate(actions, start=1):
         st.markdown(f"{i}. {a}")
+
+st.markdown("### Upcoming special dates (execution + margin measurement)")
+for ev in _upcoming_campaign_calendar(limit=5):
+    st.markdown(f"**{ev['days_left']} · {ev['date']} · {ev['name']}**")
+    st.caption(f"Goal: {ev['focus']}")
+    st.caption(f"Do now: {ev['do_now']}")
+    st.caption(ev["success_check"])
 
 st.divider()
 with st.expander("Top campaign insights (ranked)", expanded=False):
@@ -376,6 +474,7 @@ with st.expander("Top campaign insights (ranked)", expanded=False):
             signal_label, signal_help = signal_friendly_pair(signal_code)
 
             with st.container(border=True):
+                _, basis_label = _impact_basis(row)
                 st.markdown(
                     (
                         "<div style='border-left:6px solid "
@@ -393,6 +492,7 @@ with st.expander("Top campaign insights (ranked)", expanded=False):
                     f"<div style='font-size:22px; font-weight:800; color:{tone_color}; margin-bottom:8px;'>{html.escape(impact_txt)}</div>",
                     unsafe_allow_html=True,
                 )
+                st.caption(f"Money basis: {basis_label}")
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Impacted revenue", fmt_usd(_f(row.get("impacted_revenue"))))
                 m2.metric("Estimated loss", fmt_usd(_f(row.get("estimated_loss"))))
@@ -406,6 +506,7 @@ with st.expander("Top campaign insights (ranked)", expanded=False):
                 )
                 if signal_help:
                     st.caption(signal_help)
+                st.caption(_basis_note(row))
                 if str(row.get("summary") or "").strip():
                     st.write(_operator_copy(str(row.get("summary") or ""), max_len=220))
 
@@ -445,12 +546,17 @@ with st.expander("High-severity signals table", expanded=False):
                 "plain_language",
                 rdf["signal_code"].map(lambda c: signal_friendly_pair(str(c))[0]),
             )
+            rdf.insert(
+                1,
+                "signal_desc",
+                rdf["signal_code"].map(lambda c: signal_desc(str(c))),
+            )
         cols = [
             c
             for c in (
                 "campaign",
                 "plain_language",
-                "signal_code",
+                "signal_desc",
                 "severity",
                 "entity_type",
                 "signal_value",
@@ -512,7 +618,7 @@ with st.expander("Per-campaign detail (pick a bucket)"):
                 sig_rows.append(
                     {
                         "plain_language": _plab,
-                        "signal_code": _code,
+                        "signal_desc": signal_desc(_code),
                         "severity": s.get("severity"),
                         "category": s.get("category"),
                         "signal_value": sv_f,
@@ -571,4 +677,5 @@ with st.expander("Per-campaign detail (pick a bucket)"):
                             f"Priority: {str(ins.get('priority') or '')} · {str(ins.get('category') or '')}"
                         )
 
+st.caption("NosaProfit - Provider by Uway Technology")
 render_footer()

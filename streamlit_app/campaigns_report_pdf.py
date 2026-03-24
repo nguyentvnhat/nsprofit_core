@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
+import struct
 from typing import Any, Callable
 
 try:
@@ -14,6 +15,47 @@ except Exception:  # pragma: no cover - environment-dependent optional dependenc
     FPDF = Any  # type: ignore[assignment]
     FPDF_FONT_DIR = ""
     _HAS_FPDF = False
+
+_BRAND_FOOTER = "NosaProfit - Provider by Uway Technology"
+_LOGO_BOX_PX = 150
+_PX_TO_MM = 25.4 / 96.0
+
+
+def _logo_path() -> Path | None:
+    p = Path(__file__).resolve().parents[1] / "assets" / "nosaprofit.PNG"
+    return p if p.is_file() else None
+
+
+def _png_size(path: Path) -> tuple[int, int] | None:
+    """Read PNG width/height from IHDR without external deps."""
+    try:
+        with path.open("rb") as f:
+            raw = f.read(24)
+        if len(raw) < 24 or raw[:8] != b"\x89PNG\r\n\x1a\n":
+            return None
+        width = struct.unpack(">I", raw[16:20])[0]
+        height = struct.unpack(">I", raw[20:24])[0]
+        if width <= 0 or height <= 0:
+            return None
+        return width, height
+    except Exception:
+        return None
+
+
+def _logo_draw_size_mm(path: Path) -> tuple[float, float]:
+    """
+    Fit logo into a 150x150px box while preserving aspect ratio.
+    Returns width/height in mm.
+    """
+    box_mm = _LOGO_BOX_PX * _PX_TO_MM
+    size = _png_size(path)
+    if not size:
+        return box_mm, box_mm
+    w_px, h_px = size
+    ratio = w_px / h_px
+    if ratio >= 1:
+        return box_mm, box_mm / ratio
+    return box_mm * ratio, box_mm
 
 
 def _safe_txt(s: Any, max_len: int = 800, *, unicode_ok: bool = True) -> str:
@@ -77,7 +119,11 @@ class _CampaignsPDF(FPDF):
         self.set_text_color(0, 0, 0)
 
     def footer(self) -> None:
-        self.set_y(-12)
+        self.set_y(-16)
+        self.set_font(self._ffam, "", 8)
+        self.set_text_color(120, 120, 120)
+        self.cell(0, 5, _BRAND_FOOTER, align="C", ln=1)
+        self.set_y(-10)
         self.set_font(self._ffam, "", 8)
         self.set_text_color(120, 120, 120)
         self.cell(0, 10, f"Page {self.page_no()}/{{nb}}", align="C", ln=0)
@@ -97,6 +143,15 @@ def _build_minimal_pdf_bytes(
     pdf.set_margins(left=14, top=14, right=14)
     pdf.alias_nb_pages()
     pdf.add_page()
+    logo = _logo_path()
+    if logo is not None:
+        try:
+            logo_w_mm, logo_h_mm = _logo_draw_size_mm(logo)
+            y0 = pdf.get_y()
+            pdf.image(str(logo), x=(pdf.w - logo_w_mm) / 2.0, y=y0, w=logo_w_mm, h=logo_h_mm)
+            pdf.set_y(y0 + logo_h_mm + 2.0)
+        except Exception:
+            pass
     pdf.set_font("helvetica", "B", 14)
     pdf.cell(0, 8, "NosaProfit - Campaigns report", ln=1)
     pdf.set_font("helvetica", "", 10)
@@ -117,6 +172,11 @@ def _build_minimal_pdf_bytes(
             ),
         )
         pdf.ln(1)
+    pdf.set_font("helvetica", "", 8)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 5, _BRAND_FOOTER, ln=1, align="C")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(1)
 
     pdf.set_font("helvetica", "B", 11)
     pdf.cell(0, 7, "Summary by campaign", ln=1)
@@ -192,7 +252,7 @@ def _build_reportlab_pdf_bytes(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     buf = BytesIO()
     doc = SimpleDocTemplate(
@@ -211,6 +271,16 @@ def _build_reportlab_pdf_bytes(
     s_impact = ParagraphStyle("np_impact", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=10, textColor=colors.HexColor("#b02a37"))
 
     story: list[Any] = []
+    logo = _logo_path()
+    if logo is not None:
+        try:
+            logo_w_mm, logo_h_mm = _logo_draw_size_mm(logo)
+            logo_img = Image(str(logo), width=logo_w_mm * mm, height=logo_h_mm * mm)
+            logo_img.hAlign = "CENTER"
+            story.append(logo_img)
+            story.append(Spacer(1, 4))
+        except Exception:
+            pass
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     story.append(Paragraph("NosaProfit - Campaigns report", s_title))
     story.append(Paragraph(f"Upload ID: {upload_id} | Generated: {ts}", s_sub))
@@ -295,7 +365,14 @@ def _build_reportlab_pdf_bytes(
                 )
             )
 
-    doc.build(story)
+    def _draw_footer(canvas: Any, doc_obj: Any) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColorRGB(0.47, 0.47, 0.47)
+        canvas.drawCentredString(A4[0] / 2, 8 * mm, _BRAND_FOOTER)
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
     return buf.getvalue()
 
 
@@ -320,6 +397,21 @@ def _executive_impact(ins: dict[str, Any]) -> tuple[str, float, str]:
     return "No dollar estimate available for this signal", 0.0, "none"
 
 
+def _executive_basis(ins: dict[str, Any]) -> str:
+    code = str(ins.get("signal_code") or "").upper()
+    title = str(ins.get("title") or "").lower()
+    loss = max(_safe_float(ins.get("estimated_loss")), 0.0)
+    opp = max(_safe_float(ins.get("opportunity_size")), 0.0)
+    blob = f"{code} {title}"
+    if "REFUND" in blob and loss > 0:
+        return "Measured"
+    if ("DISCOUNT" in blob or "AOV" in blob or "UNSTABLE" in blob or "VOLUME_DRIVEN" in blob) and (loss > 0 or opp > 0):
+        return "Estimated (proxy)"
+    if "CONCENTRATION" in blob or "DEPENDENCY" in blob or "LOW_REPEAT" in blob or "REPEAT" in blob:
+        return "Estimated (proxy)"
+    return "Estimated (proxy)"
+
+
 def _executive_action(ins: dict[str, Any]) -> str:
     code = str(ins.get("signal_code") or "").upper()
     title = str(ins.get("title") or "").lower()
@@ -336,8 +428,21 @@ def _executive_action(ins: dict[str, Any]) -> str:
         verb = f"Diversify channels/SKUs in {campaign}"
     elif "LOW_REPEAT" in code or "REPEAT" in title:
         verb = f"Lift repeat mix in {campaign}"
+    elif "BUNDLE" in code or "PAIR" in title:
+        verb = f"Launch bundle/paired offer in {campaign}"
+    elif "SHIPPING" in code or "FREE_SHIP" in code or "threshold" in title:
+        verb = f"Adjust free-shipping threshold and cart nudges in {campaign}"
+    elif "REFUND" in code or "return" in title:
+        verb = f"Reduce refund drivers in {campaign}"
     else:
-        verb = f"Fix key campaign issue in {campaign}"
+        raw = str(ins.get("action") or "").strip()
+        if raw:
+            raw = _safe_txt(raw, 120, unicode_ok=False)
+            if raw.lower().startswith("action:"):
+                raw = raw[7:].strip()
+            verb = raw if campaign.lower() in raw.lower() else f"{raw} in {campaign}"
+        else:
+            verb = f"Tighten targeting and offer design in {campaign}"
     impact_text, amount, kind = _executive_impact(ins)
     if amount > 0 and kind == "loss":
         return f"{verb} -> save {impact_text.split(' ')[0]}"
@@ -352,6 +457,59 @@ def _executive_action(ins: dict[str, Any]) -> str:
     return f"Protect ~{_fmt_money(revenue * 0.05)} in {campaign} by tightening campaign controls"
 
 
+def _unique_actions(insights: list[dict[str, Any]], limit: int = 3) -> list[str]:
+    """Return distinct action lines while preserving first-seen rank order."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for ins in insights:
+        action = _executive_action(ins).strip()
+        key = action.lower()
+        if not action or key in seen:
+            continue
+        seen.add(key)
+        out.append(action)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _upcoming_campaign_calendar(today: date | None = None, limit: int = 5) -> list[dict[str, str]]:
+    d0 = today or date.today()
+    events = [
+        (1, 1, "New Year", "Clear old stock without killing margin", "Only discount slow-moving SKUs; keep best sellers at normal price."),
+        (2, 14, "Valentine's Day", "Increase basket value", "Use gift bundles and cap voucher depth by channel."),
+        (3, 8, "International Women's Day", "Grow revenue from gift sets", "Push combo offers before event day; avoid site-wide deep discount."),
+        (4, 30, "Reunification Day (VN)", "Scale paid traffic safely", "Raise budget only on campaigns meeting margin floor."),
+        (5, 1, "Labor Day", "Protect profit during short promo", "Run shorter flash windows and pause low-margin ad sets."),
+        (6, 6, "Mid-Year Mega Sale 6.6", "Maximize volume with controlled discount", "Prioritize high-margin SKUs and stop coupon stacking."),
+        (7, 7, "Mega Sale 7.7", "Lift AOV", "Set free-ship threshold above current AOV and upsell add-ons."),
+        (8, 8, "Mega Sale 8.8", "Avoid margin-negative scale", "Bid down or pause SKUs/campaigns with weak contribution margin."),
+        (9, 9, "Mega Sale 9.9", "Win incremental profit, not just gross sales", "Compare event revenue versus baseline after promo costs."),
+        (10, 10, "Mega Sale 10.10", "Find best promo depth", "A/B test discount levels and keep the strongest net-margin variant."),
+        (11, 11, "Singles' Day 11.11", "Capture peak demand efficiently", "Pre-book spend to proven campaigns and throttle losers fast."),
+        (11, 29, "Black Friday / Cyber Monday window", "Prevent leakage at peak traffic", "Monitor margin every few hours and enforce stop-loss rules."),
+        (12, 12, "Mega Sale 12.12", "Close year with profitable growth", "Use margin-based campaign caps and protect repeat buyers."),
+        (12, 24, "Christmas / Year-end gifting", "Monetize gifting demand", "Push gift bundles and prioritize high-LTV customer segments."),
+    ]
+    out: list[dict[str, str]] = []
+    for month, day, name, focus, do_now in events:
+        evt = date(d0.year, month, day)
+        if evt < d0:
+            evt = date(d0.year + 1, month, day)
+        out.append(
+            {
+                "days_left": f"D-{(evt - d0).days}",
+                "date": evt.strftime("%Y-%m-%d"),
+                "name": name,
+                "focus": focus,
+                "do_now": do_now,
+                "success_check": "Success check: margin % does not drop, net revenue grows, CAC stays in target, refund rate does not spike.",
+            }
+        )
+    out.sort(key=lambda x: x["date"])
+    return out[:limit]
+
+
 def _build_reportlab_executive_pdf_bytes(
     *,
     upload_id: int,
@@ -359,6 +517,7 @@ def _build_reportlab_executive_pdf_bytes(
     enriched_insights: list[dict[str, Any]],
     risks_rows: list[dict[str, Any]],
     opp_summary: dict[str, Any],
+    signal_desc_fn: Callable[[str | None], str],
 ) -> bytes:
     """Decision-focused PDF layout for executives."""
     from io import BytesIO
@@ -367,7 +526,7 @@ def _build_reportlab_executive_pdf_bytes(
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     sorted_ins = _executive_sorted(enriched_insights)
     top3 = sorted_ins[:3]
@@ -388,6 +547,16 @@ def _build_reportlab_executive_pdf_bytes(
     s_impact = ParagraphStyle("ex_impact", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=10, leading=13)
 
     story: list[Any] = []
+    logo = _logo_path()
+    if logo is not None:
+        try:
+            logo_w_mm, logo_h_mm = _logo_draw_size_mm(logo)
+            logo_img = Image(str(logo), width=logo_w_mm * mm, height=logo_h_mm * mm)
+            logo_img.hAlign = "CENTER"
+            story.append(logo_img)
+            story.append(Spacer(1, 4))
+        except Exception:
+            pass
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     story.append(Paragraph("NosaProfit - Campaigns report", s_title))
     story.append(Paragraph(f"Upload ID: {upload_id} | Generated: {ts}", s_txt))
@@ -404,18 +573,72 @@ def _build_reportlab_executive_pdf_bytes(
         title = _safe_txt(ins.get("title"), 80, unicode_ok=False)
         impact_text, _, _ = _executive_impact(ins)
         story.append(Paragraph(f"{i}. {title} -> {impact_text}", s_impact))
+        story.append(Paragraph(f"Money basis: {_executive_basis(ins)}", s_txt))
         story.append(Paragraph(f"Action now: {_executive_action(ins)}", s_txt))
     story.append(Spacer(1, 8))
 
     story.append(Paragraph("Fix these first", s_h2))
-    for i, ins in enumerate(top3, start=1):
-        story.append(Paragraph(f"{i}. {_executive_action(ins)}", s_txt))
+    for i, action in enumerate(_unique_actions(sorted_ins, limit=3), start=1):
+        story.append(Paragraph(f"{i}. {action}", s_txt))
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph("Upcoming special dates", s_h2))
+    cal_cell_style = ParagraphStyle(
+        "ex_calendar_cell",
+        parent=s_txt,
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        wordWrap="LTR",
+    )
+    cal_rows = [["Countdown", "Date", "Event", "Business goal", "What to do", "Success check"]]
+    for ev in _upcoming_campaign_calendar(limit=5):
+        cal_rows.append(
+            [
+                _safe_txt(ev.get("days_left"), 10, unicode_ok=False),
+                _safe_txt(ev.get("date"), 14, unicode_ok=False),
+                Paragraph(_safe_txt(ev.get("name"), 60, unicode_ok=False), cal_cell_style),
+                Paragraph(_safe_txt(ev.get("focus"), 90, unicode_ok=False), cal_cell_style),
+                Paragraph(_safe_txt(ev.get("do_now"), 140, unicode_ok=False), cal_cell_style),
+                Paragraph(_safe_txt(ev.get("success_check"), 120, unicode_ok=False), cal_cell_style),
+            ]
+        )
+    cal_t = Table(cal_rows, colWidths=[16 * mm, 20 * mm, 30 * mm, 36 * mm, 47 * mm, 33 * mm], repeatRows=1)
+    cal_t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f5")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dee2e6")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    story.append(cal_t)
+    story.append(Spacer(1, 8))
+
+    story.append(
+        Paragraph(
+            "Method note: 'Measured' uses direct metric values. 'Estimated (proxy)' uses deterministic formulas from campaign metrics (discount/AOV/growth/exposure).",
+            s_txt,
+        )
+    )
     story.append(Spacer(1, 8))
 
     story.append(Paragraph("Appendix - full insight list", s_h2))
-    insight_rows = [["#", "Campaign", "Insight", "Impact", "Action"]]
+    insight_rows = [["#", "Campaign", "Insight", "Impact", "Basis", "Action"]]
     cell_style = ParagraphStyle(
         "ex_cell",
+        parent=s_txt,
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        wordWrap="LTR",
+    )
+    basis_style = ParagraphStyle(
+        "ex_basis_cell",
         parent=s_txt,
         fontName="Helvetica",
         fontSize=8,
@@ -430,12 +653,14 @@ def _build_reportlab_executive_pdf_bytes(
                 _safe_txt(ins.get("campaign"), 14, unicode_ok=False),
                 Paragraph(_safe_txt(ins.get("title"), 200, unicode_ok=False), cell_style),
                 Paragraph(_safe_txt(impact_text, 140, unicode_ok=False), cell_style),
+                Paragraph(_safe_txt(_executive_basis(ins), 60, unicode_ok=False), basis_style),
                 Paragraph(_safe_txt(_executive_action(ins), 180, unicode_ok=False), cell_style),
             ]
         )
     insight_table = Table(
         insight_rows,
-        colWidths=[10 * mm, 24 * mm, 64 * mm, 44 * mm, 36 * mm],
+        # Wider Basis + Action columns to prevent overflow.
+        colWidths=[8 * mm, 18 * mm, 46 * mm, 32 * mm, 24 * mm, 50 * mm],
         repeatRows=1,
     )
     insight_style = [
@@ -459,20 +684,59 @@ def _build_reportlab_executive_pdf_bytes(
     story.append(Spacer(1, 8))
 
     story.append(Paragraph("Appendix - campaign summary table", s_h2))
-    rows = [["Campaign", "Orders", "Gross", "Net", "Discount %", "AOV", "Risk"]]
+    reason_map: dict[str, list[str]] = {}
+    for rr in risks_rows:
+        campaign_key = str(rr.get("campaign") or "").strip()
+        if not campaign_key:
+            continue
+        code = _safe_txt(rr.get("signal_code"), 40, unicode_ok=False)
+        reason = _safe_txt(signal_desc_fn(code), 200, unicode_ok=False).strip()
+        if not reason:
+            continue
+        bucket = reason_map.setdefault(campaign_key, [])
+        if reason not in bucket:
+            bucket.append(reason)
+    summary_reason_style = ParagraphStyle(
+        "summary_reason_cell",
+        parent=s_txt,
+        fontName="Helvetica",
+        fontSize=7,
+        leading=9,
+        wordWrap="LTR",
+    )
+    rows = [["Campaign", "Orders", "Gross", "Net", "Discount %", "AOV", "Risk", "Reason"]]
     for r in summary_rows:
+        raw_campaign_key = str(r.get("campaign") or "").strip()
+        campaign = _safe_txt(r.get("campaign"), 20, unicode_ok=False)
+        risk_level = _safe_txt(r.get("risk_level"), 10, unicode_ok=False)
+        reasons = reason_map.get(raw_campaign_key, [])
+        if reasons:
+            reason_text = "; ".join(reasons[:2])
+        else:
+            level = str(r.get("risk_level") or "").strip().lower()
+            if level in {"high", "critical"}:
+                reason_text = "High risk based on threshold breaches in current window"
+            elif level in {"medium", "moderate"}:
+                reason_text = "Medium risk due to near-threshold performance signals"
+            else:
+                reason_text = "-"
         rows.append(
             [
-                _safe_txt(r.get("campaign"), 20, unicode_ok=False),
+                campaign,
                 str(int(r.get("orders") or 0)),
                 _fmt_money(r.get("revenue")),
                 _fmt_money(r.get("net_revenue")),
                 f"{_safe_float(r.get('discount_rate')) * 100.0:.1f}%",
                 _fmt_money(r.get("aov")),
-                _safe_txt(r.get("risk_level"), 10, unicode_ok=False),
+                risk_level,
+                Paragraph(_safe_txt(reason_text, 220, unicode_ok=False), summary_reason_style),
             ]
         )
-    t = Table(rows, colWidths=[38 * mm, 15 * mm, 23 * mm, 23 * mm, 20 * mm, 18 * mm, 20 * mm], repeatRows=1)
+    t = Table(
+        rows,
+        colWidths=[26 * mm, 12 * mm, 20 * mm, 20 * mm, 14 * mm, 14 * mm, 12 * mm, 64 * mm],
+        repeatRows=1,
+    )
     t.setStyle(
         TableStyle(
             [
@@ -480,7 +744,8 @@ def _build_reportlab_executive_pdf_bytes(
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dee2e6")),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]
         )
     )
@@ -488,12 +753,21 @@ def _build_reportlab_executive_pdf_bytes(
     if risks_rows:
         story.append(Spacer(1, 8))
         story.append(Paragraph("Appendix - high-severity signals", s_h2))
-        s_rows = [["Campaign", "Signal code", "Value", "Threshold", "Entity"]]
+        risk_cell_style = ParagraphStyle(
+            "risk_cell",
+            parent=s_txt,
+            fontName="Helvetica",
+            fontSize=8,
+            leading=10,
+            wordWrap="LTR",
+        )
+        s_rows = [["Campaign", "Signal description", "Value", "Threshold", "Entity"]]
         for r in risks_rows:
+            code = _safe_txt(r.get("signal_code"), 34, unicode_ok=False)
             s_rows.append(
                 [
                     _safe_txt(r.get("campaign"), 18, unicode_ok=False),
-                    _safe_txt(r.get("signal_code"), 34, unicode_ok=False),
+                    Paragraph(_safe_txt(signal_desc_fn(code), 260, unicode_ok=False), risk_cell_style),
                     f"{_safe_float(r.get('signal_value')):.2f}",
                     f"{_safe_float(r.get('threshold_value')):.2f}",
                     _safe_txt(r.get("entity_type"), 14, unicode_ok=False),
@@ -501,7 +775,7 @@ def _build_reportlab_executive_pdf_bytes(
             )
         s_table = Table(
             s_rows,
-            colWidths=[28 * mm, 78 * mm, 20 * mm, 24 * mm, 24 * mm],
+            colWidths=[24 * mm, 102 * mm, 14 * mm, 18 * mm, 14 * mm],
             repeatRows=1,
         )
         s_table_style = [
@@ -516,13 +790,22 @@ def _build_reportlab_executive_pdf_bytes(
             ("RIGHTPADDING", (0, 0), (-1, -1), 5),
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("ALIGN", (2, 1), (3, -1), "RIGHT"),
+            ("ALIGN", (4, 1), (4, -1), "CENTER"),
         ]
         for ridx in range(1, len(s_rows)):
             if ridx % 2 == 0:
                 s_table_style.append(("BACKGROUND", (0, ridx), (-1, ridx), colors.HexColor("#fcfcfd")))
         s_table.setStyle(TableStyle(s_table_style))
         story.append(s_table)
-    doc.build(story)
+    def _draw_footer(canvas: Any, doc_obj: Any) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColorRGB(0.47, 0.47, 0.47)
+        canvas.drawCentredString(A4[0] / 2, 8 * mm, _BRAND_FOOTER)
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
     return buf.getvalue()
 
 
@@ -534,6 +817,7 @@ def build_campaigns_pdf_bytes(
     risks_rows: list[dict[str, Any]],
     opp_summary: dict[str, Any],
     signal_label_fn: Callable[[str | None], tuple[str, str]],
+    signal_desc_fn: Callable[[str | None], str],
 ) -> bytes:
     """Build a multi-section PDF report; safe on empty lists."""
     try:
@@ -543,6 +827,7 @@ def build_campaigns_pdf_bytes(
             enriched_insights=enriched_insights,
             risks_rows=risks_rows,
             opp_summary=opp_summary,
+            signal_desc_fn=signal_desc_fn,
         )
     except Exception:
         pass
@@ -570,6 +855,15 @@ def build_campaigns_pdf_bytes(
         unicode_ok = bool(getattr(pdf, "_unicode_ok", False))
         pdf.alias_nb_pages()
         pdf.add_page()
+        logo = _logo_path()
+        if logo is not None:
+            try:
+                logo_w_mm, logo_h_mm = _logo_draw_size_mm(logo)
+                y0 = pdf.get_y()
+                pdf.image(str(logo), x=(pdf.w - logo_w_mm) / 2.0, y=y0, w=logo_w_mm, h=logo_h_mm)
+                pdf.set_y(y0 + logo_h_mm + 2.0)
+            except Exception:
+                pass
 
         pdf.set_font(ff, "B", 16)
         pdf.cell(0, 10, "NosaProfit - Campaigns report", ln=1)

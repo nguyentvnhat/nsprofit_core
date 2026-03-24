@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NosaProfit Executive Report</title>
+  <link rel="stylesheet" href="executive_report.css" />
+</head>
+<body>
+  <main class="report">
+    <header class="header">
+      <div>
+        <img class="brand-logo" src="assets/nosaprofit.PNG" alt="NosaProfit logo" />
+        <h1>NosaProfit Executive Report</h1>
+        <p class="meta">Generated: {{ report.generated_at }}</p>
+        <p class="meta">Upload: {{ report.file_name }}{% if report.upload_id %} (ID {{ report.upload_id }}){% endif %}</p>
+      </div>
+      <div class="profit-card">
+        <h2>Profit Summary</h2>
+        <p class="money loss">{{ report.profit_summary.loss }} at risk</p>
+        <p class="money opportunity">{{ report.profit_summary.opportunity }} opportunity</p>
+        <p class="meta">Top campaign: {{ report.profit_summary.top_campaign }}</p>
+      </div>
+    </header>
+
+    <section class="kpi-grid">
+      <article class="kpi">
+        <h3>Total Revenue</h3>
+        <p>{{ report.kpis.total_revenue }}</p>
+      </article>
+      <article class="kpi">
+        <h3>Net Revenue</h3>
+        <p>{{ report.kpis.net_revenue }}</p>
+      </article>
+      <article class="kpi">
+        <h3>AOV</h3>
+        <p>{{ report.kpis.aov }}</p>
+      </article>
+      <article class="kpi">
+        <h3>Total Orders</h3>
+        <p>{{ report.kpis.total_orders }}</p>
+      </article>
+    </section>
+
+    <section>
+      <h2>Top Opportunities</h2>
+      {% if report.top_opportunities %}
+      <div class="opportunity-grid">
+        {% for item in report.top_opportunities %}
+        <article class="opportunity priority-{{ item.priority|lower }}">
+          <div class="op-head">
+            <p class="rank">#{{ item.rank }} · {{ item.campaign }}</p>
+            <span class="badge">{{ item.priority }}</span>
+          </div>
+          <h3>{{ item.title }}</h3>
+          <p class="impact">{{ item.impact }}</p>
+          <p class="basis">Money basis: {{ item.money_basis }}</p>
+          <p class="why">{{ item.why_now }}</p>
+          <p class="action"><strong>Action now:</strong> {{ item.action }}</p>
+          <p class="score">Score: {{ item.score }}</p>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="empty">No opportunities available in current dashboard data.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Fix These First</h2>
+      {% if report.recommended_actions %}
+      <ol class="actions">
+        {% for action in report.recommended_actions %}
+        <li>{{ action.text }}</li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="empty">No action recommendations available.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Upcoming Special Dates</h2>
+      {% if report.upcoming_calendar %}
+      <table>
+        <thead>
+          <tr>
+            <th>Countdown</th>
+            <th>Date</th>
+            <th>Event</th>
+            <th>Business Goal</th>
+            <th>What to Do</th>
+            <th>Success Check</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.upcoming_calendar %}
+          <tr>
+            <td>{{ row.days_left }}</td>
+            <td>{{ row.date }}</td>
+            <td>{{ row.name }}</td>
+            <td>{{ row.focus }}</td>
+            <td>{{ row.do_now }}</td>
+            <td>{{ row.success_check }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">No upcoming dates available.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Top Risks</h2>
+      {% if report.top_risks %}
+      <table>
+        <thead>
+          <tr>
+            <th>Campaign</th>
+            <th>Signal</th>
+            <th>Description</th>
+            <th>Value</th>
+            <th>Threshold</th>
+            <th>Severity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.top_risks %}
+          <tr>
+            <td>{{ row.campaign }}</td>
+            <td>{{ row.signal }}</td>
+            <td>{{ row.signal_desc }}</td>
+            <td class="num">{{ row.value }}</td>
+            <td class="num">{{ row.threshold }}</td>
+            <td>{{ row.severity }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">No high-severity risk rows available.</p>
+      {% endif %}
+    </section>
+
+    <section class="page-break">
+      <h2>Campaign Summary Table</h2>
+      {% if report.campaign_summary_table %}
+      <table>
+        <thead>
+          <tr>
+            <th>Campaign</th>
+            <th>Orders</th>
+            <th>Revenue</th>
+            <th>Net Revenue</th>
+            <th>Discount Rate</th>
+            <th>AOV</th>
+            <th>Risk</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.campaign_summary_table %}
+          <tr>
+            <td>{{ row.campaign }}</td>
+            <td class="num">{{ row.orders }}</td>
+            <td class="num">{{ row.revenue }}</td>
+            <td class="num">{{ row.net_revenue }}</td>
+            <td class="num">{{ row.discount_rate }}</td>
+            <td class="num">{{ row.aov }}</td>
+            <td>{{ row.risk_level }}</td>
+            <td>{{ row.reason }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">No campaign summary rows available.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Top Ranked Campaign Insights (Appendix)</h2>
+      {% if report.appendix_insights %}
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Campaign</th>
+            <th>Insight</th>
+            <th>Impact</th>
+            <th>Basis</th>
+            <th>Action</th>
+            <th>Priority</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.appendix_insights %}
+          <tr>
+            <td class="num">{{ row.idx }}</td>
+            <td>{{ row.campaign }}</td>
+            <td>{{ row.title }}</td>
+            <td>{{ row.impact }}</td>
+            <td>{{ row.basis }}</td>
+            <td>{{ row.action }}</td>
+            <td>{{ row.priority }}</td>
+            <td class="num">{{ row.score }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="empty">No ranked campaign insights available.</p>
+      {% endif %}
+    </section>
+
+    <p class="method-note">{{ report.method_note }}</p>
+    <footer class="footer">
+      <p>NosaProfit - Provider by Uway Technology</p>
+    </footer>
+  </main>
+</body>
+</html>

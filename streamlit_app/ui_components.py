@@ -128,6 +128,11 @@ def signal_friendly_pair(signal_code: str | None) -> tuple[str, str]:
     return friendly, "Triggered from your latest numbers and configured thresholds."
 
 
+def signal_desc(signal_code: str | None) -> str:
+    """One-line business explanation for a signal code."""
+    return signal_friendly_pair(signal_code)[1]
+
+
 def humanize_column_label(name: str) -> str:
     """Turn ``customer_email``-style names into ``Customer Email`` for table headers."""
     s = str(name).strip()
