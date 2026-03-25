@@ -140,6 +140,7 @@ try:
 
     _pdf_bytes = build_campaigns_pdf_bytes(
         upload_id=int(uid),
+        file_name=str(getattr(dashboard, "file_name", None) or ""),
         summary_rows=summary_rows,
         enriched_insights=enriched_all,
         risks_rows=risks_rows,

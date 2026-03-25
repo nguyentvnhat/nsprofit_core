@@ -624,42 +624,9 @@ def _execution_score(ins: dict[str, Any]) -> float:
 
 
 def _execution_plan(insights: list[dict[str, Any]]) -> list[dict[str, str]]:
-    merged: dict[str, dict[str, Any]] = {}
-    for ins in insights:
-        title = _decision_title(ins)
-        key = title.lower().strip()
-        impact_val = max(_executive_impact_numbers(ins))
-        if impact_val <= 0:
-            continue
-        if key not in merged:
-            merged[key] = {
-                "title": title,
-                "type": _decision_type(ins),
-                "impact_value": impact_val,
-                "time_to_impact": _time_to_impact(ins),
-                "confidence": _confidence(ins),
-                "decision": _executive_action(ins),
-                "why": _why_this_happening(ins),
-                "steps": _next_steps(ins),
-                "category": _decision_category(ins),
-            }
-        else:
-            cur = merged[key]
-            cur["impact_value"] = float(cur["impact_value"]) + impact_val
-            if _confidence(ins) == "High":
-                cur["confidence"] = "High"
-            elif _confidence(ins) == "Medium" and cur["confidence"] == "Low":
-                cur["confidence"] = "Medium"
-            if _time_to_impact(ins) == "3-7 days":
-                cur["time_to_impact"] = "3-7 days"
-            why = list(cur["why"])
-            for line in _why_this_happening(ins):
-                if line not in why:
-                    why.append(line)
-            cur["why"] = why[:2]
-
+    ordered = _merged_decisions(insights)
     ordered = sorted(
-        merged.values(),
+        ordered,
         key=lambda x: -(
             float(x["impact_value"])
             * {"High": 1.0, "Medium": 0.75, "Low": 0.5}.get(str(x["confidence"]), 0.6)
@@ -698,6 +665,46 @@ def _execution_plan(insights: list[dict[str, Any]]) -> list[dict[str, str]]:
             }
         )
     return plan
+
+
+def _merged_decisions(insights: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge insights into distinct decisions; sum impacts; keep best (fastest/highest confidence)."""
+    merged: dict[str, dict[str, Any]] = {}
+    for ins in insights:
+        title = _decision_title(ins)
+        key = title.lower().strip()
+        impact_val = max(_executive_impact_numbers(ins))
+        if impact_val <= 0:
+            continue
+        if key not in merged:
+            merged[key] = {
+                "title": title,
+                "type": _decision_type(ins),
+                "impact_value": impact_val,
+                "time_to_impact": _time_to_impact(ins),
+                "confidence": _confidence(ins),
+                "decision": _executive_action(ins),
+                "why": _why_this_happening(ins),
+                "steps": _next_steps(ins),
+                "category": _decision_category(ins),
+            }
+        else:
+            cur = merged[key]
+            cur["impact_value"] = float(cur["impact_value"]) + impact_val
+            # keep best confidence among merged
+            if _confidence(ins) == "High":
+                cur["confidence"] = "High"
+            elif _confidence(ins) == "Medium" and cur["confidence"] == "Low":
+                cur["confidence"] = "Medium"
+            # keep fastest time bucket
+            if _time_to_impact(ins) == "3-7 days":
+                cur["time_to_impact"] = "3-7 days"
+            why = list(cur["why"])
+            for line in _why_this_happening(ins):
+                if line not in why:
+                    why.append(line)
+            cur["why"] = why[:2]
+    return list(merged.values())
 
 
 def _unique_actions(insights: list[dict[str, Any]], limit: int = 3) -> list[str]:
@@ -756,6 +763,7 @@ def _upcoming_campaign_calendar(today: date | None = None, limit: int = 5) -> li
 def _build_reportlab_executive_pdf_bytes(
     *,
     upload_id: int,
+    file_name: str = "",
     summary_rows: list[dict[str, Any]],
     enriched_insights: list[dict[str, Any]],
     risks_rows: list[dict[str, Any]],
@@ -775,6 +783,7 @@ def _build_reportlab_executive_pdf_bytes(
     execution_plan = _execution_plan(sorted_ins)
     top3 = execution_plan[:3]
     buf = BytesIO()
+    doc_title = f"{file_name} - NosaProfit" if str(file_name or "").strip() else f"Upload {upload_id} - NosaProfit"
     doc = SimpleDocTemplate(
         buf,
         pagesize=A4,
@@ -782,6 +791,7 @@ def _build_reportlab_executive_pdf_bytes(
         rightMargin=14 * mm,
         topMargin=14 * mm,
         bottomMargin=14 * mm,
+        title=doc_title,
     )
     styles = getSampleStyleSheet()
     s_title = ParagraphStyle("ex_title", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=18, leading=22)
@@ -988,8 +998,8 @@ def _build_reportlab_executive_pdf_bytes(
     )
     story.append(Spacer(1, 8))
 
-    story.append(Paragraph("Appendix - full decision list (grouped)", s_h2))
-    insight_rows = [["#", "Category", "Campaign", "Decision", "Impact", "Type", "Time", "Confidence"]]
+    story.append(Paragraph("Appendix - top decisions (High/Medium only)", s_h2))
+    insight_rows = [["#", "Category", "Campaign", "Decision", "Impact", "Type", "Time"]]
     cell_style = ParagraphStyle(
         "ex_cell",
         parent=s_txt,
@@ -1006,24 +1016,33 @@ def _build_reportlab_executive_pdf_bytes(
         leading=10,
         wordWrap="LTR",
     )
-    grouped_sorted = sorted(sorted_ins, key=lambda x: (_decision_category(x), -_execution_score(x)))
-    for i, ins in enumerate(grouped_sorted, start=1):
+    merged = _merged_decisions(sorted_ins)
+    # Only keep High/Medium confidence, take top 5 by score.
+    filtered = [m for m in merged if str(m.get("confidence")) in {"High", "Medium"}]
+    filtered.sort(
+        key=lambda x: -(
+            float(x.get("impact_value") or 0.0)
+            * {"High": 1.0, "Medium": 0.75}.get(str(x.get("confidence")), 0.6)
+            / {"3-7 days": 1.0, "7-14 days": 1.35, "14-30 days": 1.8, "30+ days": 2.4}.get(str(x.get("time_to_impact")), 1.5)
+        )
+    )
+    top5 = filtered[:5]
+
+    for i, ins in enumerate(top5, start=1):
         insight_rows.append(
             [
                 str(i),
-                _safe_txt(_decision_category(ins), 18, unicode_ok=False),
-                _safe_txt(ins.get("campaign"), 14, unicode_ok=False),
-                Paragraph(_safe_txt(_decision_title(ins), 180, unicode_ok=False), cell_style),
-                Paragraph(_safe_txt(_executive_action(ins), 180, unicode_ok=False), cell_style),
+                _safe_txt(ins.get("category"), 18, unicode_ok=False),
+                Paragraph(_safe_txt("-", 14, unicode_ok=False), basis_style),
+                Paragraph(_safe_txt(ins.get("title"), 180, unicode_ok=False), cell_style),
                 Paragraph(_safe_txt(f"{_fmt_money(_confidence_adjusted_range(ins)[0])}-{_fmt_money(_confidence_adjusted_range(ins)[1])}", 120, unicode_ok=False), cell_style),
-                Paragraph(_safe_txt(_decision_type(ins), 18, unicode_ok=False), basis_style),
-                Paragraph(_safe_txt(_time_to_impact(ins), 20, unicode_ok=False), basis_style),
-                Paragraph(_safe_txt(_confidence(ins), 16, unicode_ok=False), basis_style),
+                Paragraph(_safe_txt(ins.get("type"), 18, unicode_ok=False), basis_style),
+                Paragraph(_safe_txt(ins.get("time_to_impact"), 20, unicode_ok=False), basis_style),
             ]
         )
     insight_table = Table(
         insight_rows,
-        colWidths=[7 * mm, 24 * mm, 16 * mm, 40 * mm, 44 * mm, 20 * mm, 14 * mm, 14 * mm, 14 * mm],
+        colWidths=[7 * mm, 26 * mm, 16 * mm, 62 * mm, 28 * mm, 18 * mm, 18 * mm],
         repeatRows=1,
     )
     insight_style = [
@@ -1124,21 +1143,29 @@ def _build_reportlab_executive_pdf_bytes(
             leading=10,
             wordWrap="LTR",
         )
-        s_rows = [["Campaign", "Signal description", "Value", "Threshold", "Entity"]]
+        entity_values = [
+            str(r.get("entity_type") or "").strip().lower()
+            for r in risks_rows
+            if isinstance(r, dict)
+        ]
+        hide_entity = bool(entity_values) and all(v in {"", "overall"} for v in entity_values)
+
+        s_rows = [["Campaign", "Signal description", "Value", "Threshold"] + ([] if hide_entity else ["Applies to"])]
         for r in risks_rows:
             code = _safe_txt(r.get("signal_code"), 34, unicode_ok=False)
-            s_rows.append(
-                [
-                    _safe_txt(r.get("campaign"), 18, unicode_ok=False),
-                    Paragraph(_safe_txt(signal_desc_fn(code), 260, unicode_ok=False), risk_cell_style),
-                    f"{_safe_float(r.get('signal_value')):.2f}",
-                    f"{_safe_float(r.get('threshold_value')):.2f}",
-                    _safe_txt(r.get("entity_type"), 14, unicode_ok=False),
-                ]
-            )
+            entity = _safe_txt(r.get("entity_type"), 14, unicode_ok=False)
+            row = [
+                _safe_txt(r.get("campaign"), 18, unicode_ok=False),
+                Paragraph(_safe_txt(signal_desc_fn(code), 260, unicode_ok=False), risk_cell_style),
+                f"{_safe_float(r.get('signal_value')):.2f}",
+                f"{_safe_float(r.get('threshold_value')):.2f}",
+            ]
+            if not hide_entity:
+                row.append("Campaign overall" if entity.lower() == "overall" else entity)
+            s_rows.append(row)
         s_table = Table(
             s_rows,
-            colWidths=[24 * mm, 102 * mm, 14 * mm, 18 * mm, 14 * mm],
+            colWidths=([24 * mm, 110 * mm, 14 * mm, 18 * mm] if hide_entity else [24 * mm, 102 * mm, 14 * mm, 18 * mm, 14 * mm]),
             repeatRows=1,
         )
         s_table_style = [
@@ -1154,8 +1181,9 @@ def _build_reportlab_executive_pdf_bytes(
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ("ALIGN", (2, 1), (3, -1), "RIGHT"),
-            ("ALIGN", (4, 1), (4, -1), "CENTER"),
         ]
+        if not hide_entity:
+            s_table_style.append(("ALIGN", (4, 1), (4, -1), "CENTER"))
         for ridx in range(1, len(s_rows)):
             if ridx % 2 == 0:
                 s_table_style.append(("BACKGROUND", (0, ridx), (-1, ridx), colors.HexColor("#fcfcfd")))
@@ -1163,6 +1191,10 @@ def _build_reportlab_executive_pdf_bytes(
         story.append(s_table)
     def _draw_footer(canvas: Any, doc_obj: Any) -> None:
         canvas.saveState()
+        try:
+            canvas.setTitle(doc_title)
+        except Exception:
+            pass
         canvas.setFont("Helvetica", 8)
         canvas.setFillColorRGB(0.47, 0.47, 0.47)
         canvas.drawCentredString(A4[0] / 2, 8 * mm, _BRAND_FOOTER)
@@ -1175,6 +1207,7 @@ def _build_reportlab_executive_pdf_bytes(
 def build_campaigns_pdf_bytes(
     *,
     upload_id: int,
+    file_name: str = "",
     summary_rows: list[dict[str, Any]],
     enriched_insights: list[dict[str, Any]],
     risks_rows: list[dict[str, Any]],
@@ -1186,6 +1219,7 @@ def build_campaigns_pdf_bytes(
     try:
         return _build_reportlab_executive_pdf_bytes(
             upload_id=upload_id,
+            file_name=file_name,
             summary_rows=summary_rows,
             enriched_insights=enriched_insights,
             risks_rows=risks_rows,
@@ -1214,6 +1248,11 @@ def build_campaigns_pdf_bytes(
             )
     try:
         pdf = _CampaignsPDF()
+        doc_title = f"{file_name} - NosaProfit" if str(file_name or "").strip() else f"Upload {upload_id} - NosaProfit"
+        try:
+            pdf.set_title(doc_title)
+        except Exception:
+            pass
         ff = pdf._ffam
         unicode_ok = bool(getattr(pdf, "_unicode_ok", False))
         pdf.alias_nb_pages()
