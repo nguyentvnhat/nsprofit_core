@@ -9,12 +9,24 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from streamlit_pkg_bootstrap import ensure_streamlit_app_package
+
+ensure_streamlit_app_package(ROOT)
+
 import pandas as pd
 import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, fmt_usd, render_footer, render_page_header
+from streamlit_app.ui_components import (
+    apply_saas_theme,
+    brand_page_icon,
+    fmt_usd,
+    prettify_dataframe_columns,
+    render_footer,
+    render_page_header,
+    signal_friendly_pair,
+)
 
 st.set_page_config(page_title="Overview — NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Overview")
@@ -66,7 +78,7 @@ else:
             label = str(row.get("label") or key.title())
             amount = float(row.get("amount", 0.0) or 0.0)
             pct = float(row.get("pct_revenue", 0.0) or 0.0) * 100.0
-            st.metric(label, fmt_usd(amount), delta=f"{pct:.1f}% of revenue")
+            st.metric(label, f"{fmt_usd(amount)} ({pct:.1f}%)")
             desc = str(row.get("description") or "")
             if desc:
                 st.caption(desc)
@@ -173,6 +185,7 @@ else:
     st.caption("High-priority risk signals")
     for item in high_risks[:2]:
         signal_code = str(item.get("signal_code") or "UNKNOWN")
+        sig_lab, _sig_hlp = signal_friendly_pair(signal_code)
         signal_value = float(item.get("signal_value") or 0.0)
         threshold_value = float(item.get("threshold_value") or 0.0)
         entity_type = str(item.get("entity_type") or "overall")
@@ -180,7 +193,7 @@ else:
         entity_label = str(entity_key) if entity_key not in (None, "") else "-"
 
         c1, c2, c3, c4, c5 = st.columns([2.2, 1.2, 1.2, 1.2, 1.2])
-        c1.markdown(f"**{signal_code}**")
+        c1.markdown(f"**{sig_lab}**")
         c2.markdown(f"Value: `{signal_value:,.2f}`")
         c3.markdown(f"Threshold: `{threshold_value:,.2f}`")
         c4.markdown(f"Type: `{entity_type}`")
@@ -210,6 +223,6 @@ with st.expander("Recent orders preview"):
     if preview.empty:
         st.info("No recent orders available.")
     else:
-        st.dataframe(preview, use_container_width=True, height=320)
+        st.dataframe(prettify_dataframe_columns(preview), use_container_width=True, height=320)
 
 render_footer()

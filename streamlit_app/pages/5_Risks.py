@@ -9,12 +9,26 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from streamlit_pkg_bootstrap import ensure_streamlit_app_package
+
+ensure_streamlit_app_package(ROOT)
+
+import html
+
 import pandas as pd
 import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, render_footer, render_page_header
+from streamlit_app.ui_components import (
+    apply_saas_theme,
+    brand_page_icon,
+    fmt_usd,
+    prettify_dataframe_columns,
+    render_footer,
+    render_page_header,
+    signal_friendly_pair,
+)
 
 st.set_page_config(page_title="Risks — NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Risks")
@@ -63,15 +77,16 @@ def _render_risk_card(item: dict) -> None:
     entity_key_text = str(entity_key) if entity_key not in (None, "") else "-"
     context = item.get("context") if isinstance(item.get("context"), dict) else {}
     money = getattr(dashboard, "money_summary", {}) or {}
-    signal_label, signal_help = _signal_label_and_help(signal_code)
+    signal_label, signal_help = signal_friendly_pair(signal_code)
 
     with st.container(border=True):
+        safe_label = html.escape(signal_label)
+        safe_help = html.escape(signal_help, quote=True)
         st.markdown(
-            f"<b>{signal_label}</b> "
-            f"<span class=\"np-help\" title=\"{signal_help}\"><i class=\"fa-solid fa-circle-info\"></i></span>",
+            f"<b>{safe_label}</b> "
+            f"<span class=\"np-help\" title=\"{safe_help}\"><i class=\"fa-solid fa-circle-info\"></i></span>",
             unsafe_allow_html=True,
         )
-        st.caption(f"Code: {signal_code}")
         c1, c2 = st.columns(2)
         c1.markdown(
             "<span title=\"Observed metric value for this risk condition. "
@@ -145,78 +160,29 @@ def _impact_hint(item: dict, money_summary: dict) -> str:
 
     shipping_pct = float(money_summary.get("shipping_as_pct_revenue", 0.0) or 0.0) * 100.0
     refund_pct = float(money_summary.get("refund_as_pct_revenue", 0.0) or 0.0) * 100.0
+    discount_amt = float(money_summary.get("discount_amount_total", 0.0) or 0.0)
+    shipping_amt = float(money_summary.get("shipping_amount_total", 0.0) or 0.0)
+    refund_amt = float(money_summary.get("refunded_amount_total", 0.0) or 0.0)
     if "DISCOUNT" in code:
-        return f"This may indicate margin leakage through discounting (~{discount_pct:.1f}% of gross revenue)."
+        return (
+            f"This may indicate margin leakage through discounting "
+            f"({fmt_usd(discount_amt)}, ~{discount_pct:.1f}% of gross revenue)."
+        )
     if "SHIPPING" in code:
-        return f"This may limit profitable scaling as shipping absorbs roughly {shipping_pct:.1f}% of revenue."
+        return (
+            f"This may limit profitable scaling as shipping absorbs "
+            f"{fmt_usd(shipping_amt)} (~{shipping_pct:.1f}% of revenue)."
+        )
     if "REFUND" in code:
-        return f"This may reflect post-purchase leakage, with refunds near {refund_pct:.1f}% of revenue."
+        return (
+            f"This may reflect post-purchase leakage, with refunds at "
+            f"{fmt_usd(refund_amt)} (~{refund_pct:.1f}% of revenue)."
+        )
     if "CONCENTRATION" in code:
         return "This suggests over-reliance on a narrow product or channel mix."
     if "LOW_ORDER_VALUE" in code or "AOV" in code or "BUNDLE" in code:
         return "This may limit profitable scaling if acquisition costs rise."
     return ""
-
-
-def _signal_label_and_help(signal_code: str) -> tuple[str, str]:
-    code = (signal_code or "").strip().upper()
-    mapping: dict[str, tuple[str, str]] = {
-        "LOW_REPEAT_MIX": (
-            "Low Repeat Customer Mix",
-            "Share of repeat customers is below target, suggesting weaker retention quality.",
-        ),
-        "SOURCE_CONCENTRATION_RISK": (
-            "Source Concentration Risk",
-            "Revenue dependency on one source/channel is high.",
-        ),
-        "HIGH_DISCOUNT_DEPENDENCY_V2": (
-            "High Discount Dependency",
-            "Sales performance appears heavily tied to discounting.",
-        ),
-        "STACKED_DISCOUNTING": (
-            "Stacked Discounting",
-            "Multiple discount mechanisms may be active at the same time.",
-        ),
-        "VOLUME_DRIVEN_GROWTH": (
-            "Volume-Driven Growth",
-            "Revenue growth is likely coming from volume, not basket value expansion.",
-        ),
-        "HERO_SKU_CONCENTRATION": (
-            "Hero SKU Concentration",
-            "A large share of revenue is concentrated in very few SKUs.",
-        ),
-        "LOW_ORDER_VALUE_PROBLEM": (
-            "Low Order Value Problem",
-            "A high portion of orders are low-value, constraining margin headroom.",
-        ),
-        "FREE_SHIPPING_OPPORTUNITY": (
-            "Free Shipping Opportunity",
-            "Many baskets sit just below free-shipping threshold, indicating AOV lift potential.",
-        ),
-        "BUNDLE_OPPORTUNITY": (
-            "Bundle Opportunity",
-            "Frequent product pairs suggest bundle design opportunity.",
-        ),
-        "DATA_HYGIENE_ISSUE": (
-            "Data Hygiene Issue",
-            "Missing/blank SKU-linked revenue reduces decision reliability.",
-        ),
-        "UNSTABLE_GROWTH": (
-            "Unstable Growth",
-            "Month-to-month revenue swings are elevated.",
-        ),
-        "ELEVATED_REFUND_RATE": (
-            "Elevated Refund Rate",
-            "Refund proportion is above expected operating range.",
-        ),
-        "FREE_SHIPPING_HEAVY": (
-            "Heavy Free Shipping Usage",
-            "Free shipping rate is high and may pressure retained revenue.",
-        ),
-    }
-    if code in mapping:
-        return mapping[code]
-    return code.replace("_", " ").title(), "Signal triggered from current metrics and configured thresholds."
 
 
 for severity in ("high", "medium", "low"):
@@ -230,6 +196,6 @@ for severity in ("high", "medium", "low"):
         _render_risk_card(item)
 
     with st.expander("Show raw table"):
-        st.dataframe(pd.DataFrame(items), use_container_width=True, height=220)
+        st.dataframe(prettify_dataframe_columns(pd.DataFrame(items)), use_container_width=True, height=220)
 
 render_footer()
