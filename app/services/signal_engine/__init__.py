@@ -8,6 +8,7 @@ from typing import Any
 from app.services.signal_engine import (
     advanced_signals,
     customer_signals,
+    discount_signals,
     product_signals,
     revenue_signals,
     risk_signals,
@@ -22,6 +23,7 @@ SIGNAL_COLLECTORS: tuple[SignalCollector, ...] = (
     customer_signals.collect,
     risk_signals.collect,
     advanced_signals.collect,
+    discount_signals.collect,
 )
 
 

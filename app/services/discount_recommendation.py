@@ -9,6 +9,7 @@ already deep (aligned with :data:`_TARGET_DISCOUNT_RATE` in campaign insight).
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -66,9 +67,42 @@ def build_discount_recommendation_rows(session: Session, upload_id: int) -> list
         include_items=True,
         include_customer=False,
     )
+    # Per-SKU accumulator:
+    # [net, discount, qty, orders_count, units_7d, units_30d, last_order_ordinal]
     acc: dict[tuple[str, str], list[float]] = {}
 
+    # Use max observed order date as anchor (stable for historical CSV replays).
+    max_day: date | None = None
     for o in orders:
+        odt = getattr(o, "order_date", None)
+        if odt is None:
+            continue
+        if isinstance(odt, datetime):
+            d = odt.date()
+        else:
+            try:
+                d = date.fromisoformat(str(odt)[:10])
+            except Exception:
+                continue
+        if max_day is None or d > max_day:
+            max_day = d
+    if max_day is None:
+        max_day = date.today()
+    w7 = max_day - timedelta(days=7)
+    w30 = max_day - timedelta(days=30)
+
+    for o in orders:
+        odt = getattr(o, "order_date", None)
+        oday: date | None = None
+        if odt is not None:
+            if isinstance(odt, datetime):
+                oday = odt.date()
+            else:
+                try:
+                    oday = date.fromisoformat(str(odt)[:10])
+                except Exception:
+                    oday = None
+        order_key = str(getattr(o, "order_name", "") or getattr(o, "external_order_id", "") or "")
         for li in o.items or []:
             sku = (li.sku or "UNKNOWN").strip() or "UNKNOWN"
             pname = (li.product_name or "").strip() or "Unnamed product"
@@ -82,13 +116,23 @@ def build_discount_recommendation_rows(session: Session, upload_id: int) -> list
                 pre = max(net, 1e-6)
             qty = int(li.quantity or 0)
             if key not in acc:
-                acc[key] = [0.0, 0.0, 0.0]  # net, disc, qty
+                acc[key] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0]  # net, disc, qty, orders, u7, u30, last_day_ord
             acc[key][0] += net
             acc[key][1] += disc
             acc[key][2] += qty
+            if order_key:
+                # approximate per-SKU order count: count unique order key by storing hash in a cheap way is heavy;
+                # instead increment once per line item but clamp later via qty-based confidence.
+                acc[key][3] += 1.0
+            if oday is not None:
+                if oday >= w7:
+                    acc[key][4] += qty
+                if oday >= w30:
+                    acc[key][5] += qty
+                acc[key][6] = max(acc[key][6], float(oday.toordinal()))
 
     rows: list[dict[str, Any]] = []
-    for (sku, product_name), (net_tot, disc_tot, qty_tot) in acc.items():
+    for (sku, product_name), (net_tot, disc_tot, qty_tot, orders_ct, u7, u30, last_ord) in acc.items():
         pre_tot = net_tot + disc_tot
         if pre_tot <= 0:
             continue
@@ -114,11 +158,38 @@ def build_discount_recommendation_rows(session: Session, upload_id: int) -> list
         after = _after_extra_promo_retained(share, suggested)
         after_low, after_high = _margin_band(after)
 
+        last_sale_days: int | None = None
+        if last_ord >= 0:
+            last_day = date.fromordinal(int(last_ord))
+            last_sale_days = int((max_day - last_day).days)
+
+        # Velocity bucket (proxy inventory / demand).
+        u7i, u30i = int(u7), int(u30)
+        if u30i <= 0 and qty_tot > 0:
+            velocity_bucket = "new_or_sparse"
+        elif u7i <= 0 and u30i > 0:
+            velocity_bucket = "slow"
+        elif u30i > 0 and (u7i / max(1, u30i)) < 0.15:
+            velocity_bucket = "slow"
+        elif u7i >= 5:
+            velocity_bucket = "fast"
+        else:
+            velocity_bucket = "normal"
+
+        # Confidence is deterministic and conservative: more line volume and more recent sales => higher.
+        if qty_tot >= 40 or u30i >= 25:
+            confidence = "high"
+        elif qty_tot >= 12 or u30i >= 8:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
         rows.append(
             {
                 "sku": sku,
                 "product_name": product_name,
                 "quantity": int(qty_tot),
+                "orders_approx": int(orders_ct),
                 "net_revenue": round(net_tot, 2),
                 "line_discount_total": round(disc_tot, 2),
                 "current_discount_pct": round(share * 100.0, 2),
@@ -129,6 +200,11 @@ def build_discount_recommendation_rows(session: Session, upload_id: int) -> list
                 "after_promo_value_retained_pct": round(after, 2),
                 "after_promo_margin_band_low_pct": round(after_low, 1),
                 "after_promo_margin_band_high_pct": round(after_high, 1),
+                "units_7d": u7i,
+                "units_30d": u30i,
+                "days_since_last_sale": last_sale_days,
+                "velocity_bucket": velocity_bucket,
+                "confidence": confidence,
             }
         )
 
@@ -144,6 +220,7 @@ def get_discount_recommendation_dataframe(session: Session, upload_id: int) -> p
                 "sku",
                 "product_name",
                 "quantity",
+                "orders_approx",
                 "net_revenue",
                 "line_discount_total",
                 "current_discount_pct",
@@ -154,6 +231,11 @@ def get_discount_recommendation_dataframe(session: Session, upload_id: int) -> p
                 "after_promo_value_retained_pct",
                 "after_promo_margin_band_low_pct",
                 "after_promo_margin_band_high_pct",
+                "units_7d",
+                "units_30d",
+                "days_since_last_sale",
+                "velocity_bucket",
+                "confidence",
             ]
         )
     return pd.DataFrame(data)

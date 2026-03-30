@@ -2,6 +2,10 @@
 
 Production-minded analytics MVP for Shopify order exports: ingest CSV → normalize → MySQL → metrics → signals → YAML rules → deterministic narratives → Streamlit.
 
+## Product
+
+See `docs/product.md` for product vision, mission, and scope.
+
 ## Layout
 
 - **`app/`** — Core application: config, DB, ORM models, repositories, services (no Streamlit business logic).

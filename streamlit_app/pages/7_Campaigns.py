@@ -36,7 +36,7 @@ st.set_page_config(page_title="Campaigns — NosaProfit", page_icon=brand_page_i
 apply_saas_theme(current_page="Campaigns")
 render_page_header(
     "Campaigns",
-    "Compare attribution buckets (UTM, landing, source, discount code) using the same metrics, signals, and rules as store-level analysis.",
+    "Compare campaign groups (UTM, landing page, source, discount code) to see where revenue is coming from, where discounts are leaking, and what to fix first.",
 )
 
 uid = st.session_state.get("active_upload_id")
@@ -71,7 +71,7 @@ if not summary_rows:
     render_footer()
     st.stop()
 
-st.caption("Discount rate = discounts ÷ gross revenue (0–1) within each bucket. Currency amounts are USD.")
+st.caption("Discount rate = discounts ÷ gross revenue, shown as a % for each campaign group. Currency is USD.")
 
 def _build_local_text_pdf_bytes() -> bytes:
     """
@@ -678,7 +678,7 @@ st.markdown(
     ),
     unsafe_allow_html=True,
 )
-st.caption("Money labels: 'Measured' = direct metric amount; 'Estimated (proxy)' = deterministic formula from campaign metrics.")
+st.caption("Money labels: 'Measured' uses direct totals; 'Estimated' is a directional model based on your campaign metrics.")
 
 quick_wins_value = sum(float(d["impact_high"]) for d in decisions if d["time_to_impact"] == "3-7 days")
 s1, s2, s3, s4 = st.columns(4)

@@ -1,0 +1,15 @@
+rules:
+  - rule_code: slow_mover_discount_playbook
+    enabled: true
+    category: pricing
+    severity: medium
+    description: "A large share of active SKUs have no sales in the last 7 days (30d active), suggesting slow movers. Recommend targeted discount tests instead of site-wide promos."
+    condition:
+      all:
+        - type: signal
+          signal_code: SKU_SLOW_MOVERS_HIGH
+    title_template: "Many SKUs are slow-moving — use targeted discount tests"
+    summary_template: "Slow-mover share is elevated, which may indicate inventory pressure or weak demand on part of the catalog."
+    implication_template: "Broad discounts can compress retained value. Targeted promos on slow movers can clear stock while protecting core SKUs."
+    action_template: "In `/Discount`, focus on SKUs with velocity_bucket=slow and set a short 3–7 day test window. Keep deep promos gated to new customers first."
+

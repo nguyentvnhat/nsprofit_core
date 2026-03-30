@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.mysql import JSON as MySQLJSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,9 +12,21 @@ from app.models.mixins import TimestampMixin
 
 class RuleDefinition(TimestampMixin, Base):
     __tablename__ = "rule_definitions"
-    __table_args__ = (Index("ix_rule_definitions_category", "category"),)
+    __table_args__ = (
+        Index("ix_rule_definitions_category", "category"),
+        Index("ix_rule_definitions_domain", "domain"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Legacy schema compatibility (Sequel Ace dumps): rule_id/domain/yaml_source_path are required.
+    rule_id: Mapped[str] = mapped_column("rule_id", String(128), nullable=False, unique=True)
+    domain: Mapped[str] = mapped_column(String(32), nullable=False, default="general")
+    yaml_source_path: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    definition_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_synced_at: Mapped[object | None] = mapped_column(DateTime(timezone=False), nullable=True)
+
+    # Newer engine metadata (added via migration when missing).
     rule_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False, default="general")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

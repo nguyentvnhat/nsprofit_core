@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.order import Order
     from app.models.raw_order import RawOrder
     from app.models.signal_event import SignalEvent
+    from app.models.promotion_draft import PromotionDraft
 
 class Upload(TimestampMixin, Base):
     __tablename__ = "uploads"
@@ -40,5 +41,8 @@ class Upload(TimestampMixin, Base):
         back_populates="upload", cascade="all, delete-orphan"
     )
     insights: Mapped[list["Insight"]] = relationship(
+        back_populates="upload", cascade="all, delete-orphan"
+    )
+    promotion_drafts: Mapped[list["PromotionDraft"]] = relationship(
         back_populates="upload", cascade="all, delete-orphan"
     )

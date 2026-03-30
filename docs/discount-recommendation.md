@@ -30,6 +30,8 @@ The store-level chain remains:
 | `app/services/promotion_draft.py` | Frozen **`PromotionDraft`** objects + `schema_version`; JSON-serializable; maps from recommendation rows. |
 | `app/integration/shopify_discounts.py` | **Stub** only: env flag, `build_shopify_discount_graphql_variables()` placeholder; **no HTTP/GraphQL** to Shopify. |
 | `streamlit_app/pages/8_Discount.py` | UI + table + **duration** slider + **JSON export** of drafts + optional GraphQL placeholder preview. |
+| `app/models/promotion_draft.py` | ORM model for persisted drafts (`promotion_drafts` table). |
+| `app/repositories/promotion_draft_repository.py` | Replace/list drafts for an upload. |
 
 Design references:
 
@@ -55,6 +57,21 @@ For each SKU aggregate:
 
 Export: JSON array from `promotion_drafts_to_jsonable(...)`.
 
+### 2.2.1 Persisting drafts to DB (recommended for portal + execution)
+
+Drafts can be saved to the database (per upload) to support:
+
+- auditability (what was suggested at the time),
+- approval workflows (`draft` → `approved` → `published`),
+- one-click execution later (Shopify adapter reads persisted drafts),
+- decoupling UI from recomputation.
+
+Table: `promotion_drafts` (created by Alembic revision `20260330_01`).
+
+Current behavior in Streamlit:
+
+- `Save drafts to DB` replaces drafts for the given `upload_id` (like insights do).
+
 ### 2.3 Shopify integration (future)
 
 | Setting | Meaning |
@@ -69,7 +86,7 @@ Placeholder payload: `build_shopify_discount_graphql_variables(draft)` — stabl
 
 Work **level by level**: add one primary data source or decision type per stage; keep a single recommendation core that outputs **`PromotionDraft`** (extend fields as needed).
 
-### Level 1 — Basic discount recommendation (MVP, current baseline)
+### Level 1 — Basic discount recommendation (MVP baseline)
 
 - **Output:** simple %, product (SKU), duration (human-chosen or default).
 - **Logic:** sales history + line discount heuristics; label gaps honestly (no fake conversion/inventory if missing).
@@ -80,7 +97,7 @@ Work **level by level**: add one primary data source or decision type per stage;
 ### Level 2 — Contextual discount
 
 - **Add:** *who / when / what* — light segments first (e.g. new vs returning vs unknown; slow/fast movers as **proxies** from order velocity unless inventory sync exists).
-- **Output:** drafts carry `segment` / `velocity_bucket` fields (to be added to schema).
+- **Output:** drafts carry `segment_policy`, `velocity_bucket`, `units_7d`, `units_30d`, `days_since_last_sale`, `confidence`.\n+\n+**Current implementation status:** Level 2 **lite** is active in Streamlit `/Discount` via `schema_version = 2` drafts.
 
 ### Level 3 — Promotion strategy (beyond flat %)
 
