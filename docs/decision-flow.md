@@ -80,9 +80,9 @@ There is no single `decision_formatter.py` yet. The role is distributed:
     - `why_now`
     - `estimated_impact_text`
 - `streamlit_app/pages/7_Campaigns.py`
-  - UI presentation decisions (top opportunities, actions, collapse levels)
+  - UI presentation decisions (top opportunities, money-driven actions, sorting by impact/speed/confidence, collapse levels)
 - `streamlit_app/pages/8_Discount.py`
-  - Per-SKU discount suggestions + JSON promotion drafts ([discount-recommendation.md](discount-recommendation.md))
+  - Per-SKU discount suggestions + JSON promotion drafts (Level 2/3 selector; campaign templates in Level 3) ([discount-recommendation.md](discount-recommendation.md))
 - `streamlit_app/campaigns_report_pdf.py`
   - PDF-oriented decision presentation
 - `app/services/pdf_export_service.py`

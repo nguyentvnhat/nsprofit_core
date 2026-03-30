@@ -46,27 +46,35 @@ st.set_page_config(page_title="Discount — NosaProfit", page_icon=brand_page_ic
 apply_saas_theme(current_page="Discount")
 render_page_header(
     "Discount recommendations",
-    "Per-SKU simple promo % suggestions, retained-value economics, and a proxy margin band (no COGS in export). "
-    "Campaigns compares attribution buckets; this page focuses on catalog promo depth. "
-    "Promotion drafts are review-ready for a future Shopify one-click create (API not wired yet).",
+    "Review promo ideas per SKU (discount %, duration, and who it applies to), with a simple margin proxy to avoid over-discounting. "
+    "Use this page to decide promo depth for your catalog; use Campaigns to compare where orders come from. "
+    "Drafts can be accepted/rejected/adjusted and exported today—Shopify one-click execution comes later.",
 )
 
-with st.expander("Discount engine roadmap (Levels 1–5)", expanded=False):
-    st.markdown(
-        """
-| Level | Status | Focus |
-|-------|--------|--------|
-| **1** | **Active on this page** | Simple **%** + SKU + duration; sales & line-discount **heuristics**; human approves. |
-| **2 (lite)** | **Active on this page** | Add **velocity** (7d/30d), **confidence**, and **segment policy** (default all / new-customer-only for deeper promos). |
-| 3 | Planned | **Promotion mix** — bundles, BXGY, tiered %, free-ship threshold (templates, not only flat %). |
-| 4 | Planned | **Profit-aware** — contribution / margin (needs **COGS** or margin assumptions). |
-| 5 | Planned | **Autonomous** — gated execution (e.g. Shopify), constraints, feedback loop. |
-
-Details: `docs/discount-recommendation.md` in the repo.
-        """
+_engine_label = lambda v: "Level 2 (lite)" if int(v) == 2 else "Level 3 (mix: discount/bundle/flash sale)"
+if hasattr(st, "segmented_control"):
+    engine_level = st.segmented_control(
+        "Discount engine level",
+        options=[2, 3],
+        default=2,
+        format_func=_engine_label,
+        help="Level 3 adds a deterministic campaign_type + template; still requires human approval.",
     )
-
-st.caption("Engine: **Level 2 (lite)** — velocity + confidence + segment policy (export JSON `level`: 2).")
+else:
+    engine_level = st.radio(
+        "Discount engine level",
+        options=[2, 3],
+        index=0,
+        format_func=_engine_label,
+        horizontal=True,
+        help="Level 3 adds a deterministic campaign_type + template; still requires human approval.",
+    )
+engine_level_i = int(engine_level or 2)
+st.caption(
+    "Engine: "
+    + ("**Level 2 (lite)** — velocity + confidence + segment policy." if engine_level_i == 2 else "**Level 3** — adds promotion mix (discount/bundle/flash_sale).")
+    + f" (export JSON `level`: {engine_level_i})."
+)
 
 uid = st.session_state.get("active_upload_id")
 if uid is None:
@@ -105,7 +113,17 @@ if slow_sig is not None:
             st.write(slow_ins.summary)
             if slow_ins.recommended_action:
                 st.markdown("**Suggested action:**")
-                st.write(slow_ins.recommended_action)
+                ra = str(slow_ins.recommended_action or "").strip()
+                is_long_playbook = (len(ra) > 260) or ("## Input" in ra) or ("STRICT JSON" in ra)
+                if is_long_playbook:
+                    short = ra.splitlines()[0].strip() if ra.splitlines() else ""
+                    if not short:
+                        short = "Open the advanced view to see the full playbook."
+                    st.write(short)
+                    with st.expander("Advanced: full playbook", expanded=False):
+                        st.code(ra, language="markdown")
+                else:
+                    st.write(ra)
 
 # Attach store-level signal codes to each row so drafts carry rationale linkage.
 for r in raw_rows:
@@ -123,6 +141,7 @@ drafts = promotion_drafts_from_discount_rows(
     raw_rows,
     upload_id=int(uid),
     duration_days=int(dur),
+    level=engine_level_i,
     limit=50,
 )
 
@@ -162,7 +181,7 @@ with c7:
         except Exception:
             continue
 
-    key = f"drafts_digest::{int(uid)}::{int(dur)}"
+    key = f"drafts_digest::{int(uid)}::{int(dur)}::{int(engine_level_i)}"
     payload = [d.to_dict() for d in drafts]
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
     prev = str(st.session_state.get(key) or "")
@@ -178,7 +197,7 @@ with c7:
                     entity_type="sku",
                     entity_key=str(d.sku),
                     status=str(existing_status_by_key.get(str(d.sku), "draft") or "draft"),
-                    draft_json=(existing_payload_by_key.get(str(d.sku)) or d.to_dict()),
+                    draft_json=d.to_dict(),
                 )
                 for d in drafts
             ]
@@ -505,7 +524,7 @@ else:
                     "fast": "Fast seller",
                     "normal": "Normal",
                     "slow": "Slow seller",
-                    "new_or_sparse": "Limited history",
+                    "new_or_sparse": "New / low data",
                 }.get(vv, "—")
 
             def _label_confidence(c: str) -> str:
@@ -516,16 +535,108 @@ else:
                 ss = str(s or "").lower().strip()
                 return {"all_customers": "All customers", "new_customers": "New customers only"}.get(ss, "—")
 
+            def _margin_band_proxy(retained_pct: float) -> tuple[float, float]:
+                r = max(0.0, min(100.0, float(retained_pct or 0.0)))
+                if r >= 75:
+                    low, high = r * 0.72, r * 0.98
+                elif r >= 55:
+                    low, high = r * 0.62, r * 0.95
+                else:
+                    low, high = r * 0.48, r * 0.88
+                return (max(0.0, low), min(100.0, high))
+
+            def _after_extra_promo_retained_proxy(current_discount_pct: float, extra_pct: float) -> float:
+                """
+                Same retained-value proxy logic as discount engine, but parameterized:
+                current_discount_pct is in 0–100 (%), extra_pct is an additional promo in %.
+                """
+                current_share = max(0.0, min(1.0, float(current_discount_pct or 0.0) / 100.0))
+                extra = max(0.0, min(0.5, float(extra_pct or 0.0) / 100.0))
+                head = max(0.0, 1.0 - current_share)
+                new_share = min(1.0, current_share + head * extra)
+                return max(0.0, (1.0 - new_share) * 100.0)
+
+            def _template_summary(draft_json: dict) -> str:
+                ct = str(draft_json.get("campaign_type") or getattr(d, "campaign_type", "discount") or "discount")
+                tmpl = draft_json.get("campaign_template")
+                if not isinstance(tmpl, dict):
+                    return ""
+                if ct == "bundle":
+                    if str(tmpl.get("bundle_style") or "") == "cross_sku":
+                        rel = tmpl.get("related_skus")
+                        if isinstance(rel, list) and rel and isinstance(rel[0], dict):
+                            rs = str(rel[0].get("sku") or "").strip()
+                            rn = str(rel[0].get("product_name") or "").strip()
+                            if rs:
+                                return f"Bundle: {rs}" + (f" ({rn})" if rn else "")
+                    tiers = tmpl.get("tiers")
+                    if isinstance(tiers, list) and tiers:
+                        t0 = tiers[0] if isinstance(tiers[0], dict) else {}
+                        mq = t0.get("min_qty")
+                        dp = t0.get("discount_percent")
+                        if mq and dp is not None:
+                            return f"Bundle tier: buy ≥{int(mq)} save {float(dp):g}%"
+                    return "Bundle: buy more, save more"
+                if ct == "flash_sale":
+                    w = tmpl.get("recommended_window_days")
+                    dp = tmpl.get("discount_percent")
+                    if w and dp is not None:
+                        return f"Flash sale: {int(w)}d at {float(dp):g}%"
+                    return "Flash sale (limited time)"
+                if ct == "discount":
+                    dp = tmpl.get("discount_percent")
+                    if dp is not None:
+                        return f"Discount: {float(dp):g}%"
+                    return ""
+                return ""
+
             with st.container(border=True):
+                # For Level 2 view/edits, force "discount-only" UI even if older saved payloads contain Level-3 fields.
+                base_json_view = dict(base_json) if isinstance(base_json, dict) else {}
+                if int(engine_level_i) < 3:
+                    base_json_view.pop("campaign_type", None)
+                    base_json_view.pop("campaign_template", None)
+
+                # Level-3: adjust expected margin proxy by campaign template (discount vs bundle vs flash).
+                if int(engine_level_i) >= 3 and isinstance(row, dict):
+                    try:
+                        cur_disc_pct = float(row.get("current_discount_pct") or 0.0)
+                        tmpl = base_json_view.get("campaign_template")
+                        ct = str(base_json_view.get("campaign_type") or getattr(d, "campaign_type", "discount") or "discount")
+                        extra_pct = float(base_json_view.get("suggested_discount_pct", pct) or pct or 0.0)
+                        if isinstance(tmpl, dict):
+                            if ct == "bundle":
+                                tiers = tmpl.get("tiers")
+                                if isinstance(tiers, list) and tiers and isinstance(tiers[0], dict):
+                                    tier_pct = float(tiers[0].get("discount_percent") or extra_pct)
+                                    # Effective discount is lower than headline (only applies when qty threshold met).
+                                    extra_pct = max(0.0, tier_pct * 0.6)
+                                else:
+                                    extra_pct = max(0.0, extra_pct * 0.6)
+                            elif ct == "flash_sale":
+                                extra_pct = float(tmpl.get("discount_percent") or extra_pct)
+                            else:  # discount
+                                extra_pct = float(tmpl.get("discount_percent") or extra_pct)
+                        after_retained = _after_extra_promo_retained_proxy(cur_disc_pct, extra_pct)
+                        a_lo, a_hi = _margin_band_proxy(after_retained)
+                        if a_hi > 0:
+                            after_band = f"{a_lo:.0f}–{a_hi:.0f}%"
+                    except Exception:
+                        pass
+
                 st.markdown(
                     f"**{status_txt} · #{idx} / {total} · {pname or 'Unnamed product'}**  \n"
-                    f"Product code: `{sku}` · Suggested discount: **{pct:.0f}%** · Duration: **{days} days**"
+                    f"Product code: `{sku}` · Suggested: **{str(getattr(d, 'campaign_type', 'discount') or 'discount')}** · **{pct:.0f}%** · Duration: **{days} days**"
                     + (f" · Expected margin (proxy): **{after_band}**" if after_band else "")
                 )
                 st.caption(
                     f"Sales speed: **{_label_velocity(vb)}** · Confidence: **{_label_confidence(conf)}** · Applies to: **{_label_segment(seg)}**"
                     + (f" · Current margin (proxy): **{cur_band}**" if cur_band else "")
                 )
+                if int(engine_level_i) >= 3:
+                    tmpl_sum = _template_summary(base_json_view)
+                    if tmpl_sum:
+                        st.caption(f"Template: **{tmpl_sum}**")
 
                 a1, a2, a3, a4 = st.columns([1, 1, 1.2, 2])
                 with a1:
@@ -585,6 +696,114 @@ else:
                                 key=f"adj_seg::{_draft_key(d)}",
                                 format_func=lambda v: _label_segment(str(v)),
                             )
+
+                        ct = "discount"
+                        next_template: dict | None = None
+                        if int(engine_level_i) >= 3:
+                            # Level-3 adjustments (campaign_type + template knobs).
+                            existing_ct = str(
+                                base_json_view.get("campaign_type") or getattr(d, "campaign_type", "discount") or "discount"
+                            )
+                            ct = st.selectbox(
+                                "Campaign type",
+                                options=["discount", "bundle", "flash_sale"],
+                                index=max(0, ["discount", "bundle", "flash_sale"].index(existing_ct))
+                                if existing_ct in {"discount", "bundle", "flash_sale"}
+                                else 0,
+                                key=f"adj_campaign_type::{_draft_key(d)}",
+                            )
+                            tmpl: dict = (
+                                base_json_view.get("campaign_template")
+                                if isinstance(base_json_view.get("campaign_template"), dict)
+                                else {}
+                            )
+                            if ct == "discount":
+                                next_template = {"type": "discount", "discount_percent": float(new_pct)}
+                            elif ct == "bundle":
+                                b1, b2 = st.columns(2)
+                                with b1:
+                                    min_qty = st.number_input(
+                                        "Bundle min qty",
+                                        min_value=2,
+                                        max_value=10,
+                                        value=int(((tmpl.get("tiers") or [{}])[0] or {}).get("min_qty") or 2),
+                                        step=1,
+                                        key=f"adj_bundle_minqty::{_draft_key(d)}",
+                                    )
+                                with b2:
+                                    tier_pct = st.slider(
+                                        "Bundle tier discount %",
+                                        min_value=0,
+                                        max_value=30,
+                                        value=int(
+                                            round(
+                                                float(
+                                                    ((tmpl.get("tiers") or [{}])[0] or {}).get("discount_percent")
+                                                    or min(10.0, float(new_pct) or 0.0)
+                                                )
+                                            )
+                                        ),
+                                        step=1,
+                                        key=f"adj_bundle_tierpct::{_draft_key(d)}",
+                                    )
+                            # Cross-SKU bundle selection (related SKUs derived from co-purchase).
+                            rel_candidates = []
+                            if isinstance(row, dict):
+                                rel_raw = row.get("related_skus")
+                                if isinstance(rel_raw, list):
+                                    for rr in rel_raw[:8]:
+                                        if isinstance(rr, dict) and str(rr.get("sku") or "").strip():
+                                            rel_candidates.append(rr)
+                            rel_labels = ["(same SKU only)"] + [
+                                f"{str(r.get('sku'))}" + (f" — {str(r.get('product_name') or '').strip()}" if str(r.get("product_name") or "").strip() else "")
+                                + (f" (×{int(r.get('count') or 0)})" if int(r.get("count") or 0) > 0 else "")
+                                for r in rel_candidates
+                            ]
+                            rel_choice = st.selectbox(
+                                "Related SKU for bundle",
+                                options=list(range(len(rel_labels))),
+                                format_func=lambda i: rel_labels[int(i)],
+                                index=0,
+                                key=f"adj_bundle_related::{_draft_key(d)}",
+                                help="Derived from co-purchase in historical orders for this upload.",
+                            )
+                            picked = rel_candidates[int(rel_choice) - 1] if int(rel_choice) > 0 and int(rel_choice) - 1 < len(rel_candidates) else {}
+                            picked_sku = str(picked.get("sku") or "").strip()
+                            picked_name = str(picked.get("product_name") or "").strip()
+                            next_template = {
+                                "type": "bundle",
+                                "bundle_style": "cross_sku" if picked_sku else "buy_more_save_more",
+                                "primary_sku": str(sku),
+                                "related_skus": ([{"sku": picked_sku, "product_name": picked_name}] if picked_sku else []),
+                                "tiers": [{"min_qty": int(min_qty), "discount_percent": float(tier_pct)}],
+                            }
+                        else:  # flash_sale
+                            f1, f2 = st.columns(2)
+                            with f1:
+                                win = st.number_input(
+                                    "Flash window (days)",
+                                    min_value=1,
+                                    max_value=7,
+                                    value=int(tmpl.get("recommended_window_days") or min(5, int(new_days) or 3)),
+                                    step=1,
+                                    key=f"adj_flash_window::{_draft_key(d)}",
+                                )
+                            with f2:
+                                flash_pct = st.slider(
+                                    "Flash discount %",
+                                    min_value=0,
+                                    max_value=30,
+                                    value=int(round(float(tmpl.get("discount_percent") or float(new_pct) or 0.0))),
+                                    step=1,
+                                    key=f"adj_flash_pct::{_draft_key(d)}",
+                                )
+                            next_template = {
+                                "type": "flash_sale",
+                                "discount_percent": float(flash_pct),
+                                "recommended_window_days": int(win),
+                                "urgency": "limited_time",
+                            }
+
                         note = st.text_input(
                             "Note (optional)",
                             value=str((base_json.get("review", {}) or {}).get("note") or ""),
@@ -596,6 +815,12 @@ else:
                         next_json["suggested_discount_pct"] = float(new_pct)
                         next_json["duration_days"] = int(new_days)
                         next_json["segment_policy"] = str(new_seg)
+                        if int(engine_level_i) >= 3:
+                            next_json["campaign_type"] = str(ct)
+                            next_json["campaign_template"] = next_template
+                        else:
+                            next_json.pop("campaign_type", None)
+                            next_json.pop("campaign_template", None)
                         next_json["review"] = {
                             "status": "modified",
                             "note": str(note or "").strip(),
@@ -605,6 +830,8 @@ else:
                                 "segment_policy": str(new_seg),
                             },
                         }
+                        if int(engine_level_i) >= 3:
+                            next_json["review"]["change"]["campaign_type"] = str(ct)
 
                         if st.button("Save changes", key=f"modify::{_draft_key(d)}", type="primary"):
                             _log_action(
@@ -614,6 +841,11 @@ else:
                                     "suggested_discount_pct": float(new_pct),
                                     "duration_days": int(new_days),
                                     "segment_policy": str(new_seg),
+                                    **(
+                                        {"campaign_type": str(ct), "campaign_template": next_template}
+                                        if int(engine_level_i) >= 3
+                                        else {}
+                                    ),
                                     "note": str(note or "").strip(),
                                 },
                             )
@@ -679,6 +911,7 @@ with st.expander("Saved drafts in DB (this upload)", expanded=False):
                 for c in (
                     "product_name",
                     "sku",
+                    "campaign_type",
                     "suggested_discount_pct",
                     "duration_days",
                     "segment_policy",

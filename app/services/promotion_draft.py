@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 # Bump when fields or semantics change (consumers / future API can branch).
-PROMOTION_DRAFT_SCHEMA_VERSION = 2
+PROMOTION_DRAFT_SCHEMA_VERSION = 3
 
 # Human-readable label for analytics / future rule linkage.
 SOURCE_HEURISTIC_V1 = "discount_recommendation_heuristic_v2"
@@ -43,6 +43,9 @@ class PromotionDraft:
     confidence: str = "low"  # low/medium/high
     segment_policy: str = "all_customers"  # all_customers/new_customers/returning_customers
     rationale_codes: tuple[str, ...] = ()
+    # Level-3 fields: promotion mix (still deterministic; executable later).
+    campaign_type: str = "discount"  # discount/bundle/flash_sale
+    campaign_template: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -73,6 +76,76 @@ def _rationale_codes_for_row(row: dict[str, Any]) -> tuple[str, ...]:
             if scs in {"SKU_SLOW_MOVERS_HIGH"}:
                 codes.append(f"store_signal_{scs}")
     return tuple(codes)
+
+
+def _campaign_type_and_template_for_row(
+    row: dict[str, Any],
+    *,
+    suggested_discount_pct: float,
+    duration_days: int,
+    level: int,
+) -> tuple[str, dict[str, Any] | None, tuple[str, ...]]:
+    """
+    Level-3 (Promotion mix) heuristic.
+
+    Returns (campaign_type, campaign_template, extra_rationale_codes).
+    """
+    if level < 3:
+        return ("discount", None, ())
+
+    vb = str(row.get("velocity_bucket") or "unknown").strip().lower()
+    conf = str(row.get("confidence") or "low").strip().lower()
+    cur = float(row.get("current_discount_pct") or 0.0)
+    pct = float(suggested_discount_pct or 0.0)
+    related = row.get("related_skus")
+    related_list: list[dict[str, Any]] = related if isinstance(related, list) else []
+    top_related = related_list[0] if related_list and isinstance(related_list[0], dict) else {}
+    rel_sku = str(top_related.get("sku") or "").strip()
+    rel_name = str(top_related.get("product_name") or "").strip()
+
+    # Flash sale: show obvious "different" strategy for slow movers / sparse history.
+    # Use a lower threshold so Level 3 visibly diverges from Level 2 in most datasets.
+    if conf in {"high", "medium"} and pct >= 10.0 and vb in {"slow", "new_or_sparse"}:
+        return (
+            "flash_sale",
+            {
+                "type": "flash_sale",
+                "discount_percent": round(pct, 2),
+                "recommended_window_days": int(max(1, min(int(duration_days), 5))),
+                "urgency": "limited_time",
+            },
+            ("campaign_type_flash_sale",),
+        )
+
+    # Bundle: default for fast/normal movers (AOV lift > deeper % off).
+    # Even if pct is 12–15, cap the bundle tier at 10% to protect profit.
+    if vb in {"fast", "normal"} and cur < 25.0:
+        tier_pct = round(min(10.0, max(5.0, pct if pct > 0 else 8.0)), 2)
+        return (
+            "bundle",
+            {
+                "type": "bundle",
+                "bundle_style": "cross_sku" if rel_sku else "buy_more_save_more",
+                "primary_sku": str(row.get("sku") or ""),
+                "related_skus": (
+                    [{"sku": rel_sku, "product_name": rel_name}] if rel_sku else []
+                ),
+                "tiers": [{"min_qty": 2, "discount_percent": tier_pct}],
+                "notes": (
+                    "Cross-SKU bundle using co-purchase data."
+                    if rel_sku
+                    else "Default for fast/normal movers: lift AOV while keeping discount shallow."
+                ),
+            },
+            ("campaign_type_bundle",),
+        )
+
+    # Default: simple discount (Level-2 style).
+    return (
+        "discount",
+        {"type": "discount", "discount_percent": round(pct, 2)},
+        ("campaign_type_discount",),
+    )
 
 
 def _segment_policy_for_row(row: dict[str, Any]) -> str:
@@ -106,10 +179,17 @@ def promotion_drafts_from_discount_rows(
         pct = float(row.get("suggested_promo_pct") or 0.0)
         if pct <= 0:
             continue
+        campaign_type, campaign_template, extra_codes = _campaign_type_and_template_for_row(
+            row,
+            suggested_discount_pct=pct,
+            duration_days=int(duration_days),
+            level=int(level),
+        )
+        base_codes = _rationale_codes_for_row(row)
         out.append(
             PromotionDraft(
                 schema_version=PROMOTION_DRAFT_SCHEMA_VERSION,
-                level=level if level >= 2 else 2,
+                level=int(level) if int(level) >= 2 else 2,
                 source=SOURCE_HEURISTIC_V1,
                 upload_id=int(upload_id),
                 sku=str(row.get("sku") or ""),
@@ -128,7 +208,9 @@ def promotion_drafts_from_discount_rows(
                 ),
                 confidence=str(row.get("confidence") or "low"),
                 segment_policy=_segment_policy_for_row(row),
-                rationale_codes=_rationale_codes_for_row(row),
+                rationale_codes=tuple(list(base_codes) + list(extra_codes)),
+                campaign_type=str(campaign_type),
+                campaign_template=campaign_template,
             )
         )
     return out

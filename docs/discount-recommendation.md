@@ -97,12 +97,16 @@ Work **level by level**: add one primary data source or decision type per stage;
 ### Level 2 — Contextual discount
 
 - **Add:** *who / when / what* — light segments first (e.g. new vs returning vs unknown; slow/fast movers as **proxies** from order velocity unless inventory sync exists).
-- **Output:** drafts carry `segment_policy`, `velocity_bucket`, `units_7d`, `units_30d`, `days_since_last_sale`, `confidence`.\n+\n+**Current implementation status:** Level 2 **lite** is active in Streamlit `/Discount` via `schema_version = 2` drafts.
+- **Output:** drafts carry `segment_policy`, `velocity_bucket`, `units_7d`, `units_30d`, `days_since_last_sale`, `confidence`.
+
+**Current implementation status:** Level 2 **lite** is selectable in Streamlit `/Discount`.
 
 ### Level 3 — Promotion strategy (beyond flat %)
 
 - **Add:** playbooks — bundles, BXGY, tiered discount, free-shipping threshold, time-boxed events — as **templates** attached to drafts or sibling objects (not necessarily one `%` only).
 - **Engine:** rule-driven suggestion of **playbook type** + parameters; optimization solvers optional later.
+
+**Current implementation status:** Level 3 is selectable in Streamlit `/Discount` and adds `campaign_type` + `campaign_template` to drafts (`schema_version = 3`).
 
 ### Level 4 — Profit-aware optimization
 

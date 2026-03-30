@@ -32,18 +32,34 @@ def build_shopify_discount_graphql_variables(draft: PromotionDraft) -> dict[str,
     SKU-based targeting in Shopify typically requires product/variant GIDs from
     catalog sync; until then, keep ``merchandiseIds`` empty and use titles for ops.
     """
+    d = draft.to_dict()
+    ct = str(d.get("campaign_type") or "discount")
+    tmpl = d.get("campaign_template") if isinstance(d.get("campaign_template"), dict) else {}
+    targeting_skus = [str(draft.sku)]
+    if ct == "bundle" and isinstance(tmpl, dict):
+        rel = tmpl.get("related_skus")
+        if isinstance(rel, list):
+            for r in rel[:5]:
+                if isinstance(r, dict):
+                    rs = str(r.get("sku") or "").strip()
+                    if rs:
+                        targeting_skus.append(rs)
+    targeting_skus = [s for s in dict.fromkeys(targeting_skus) if s]
+
     return {
         "draft": draft.to_dict(),
         "shopify_admin_graphql_placeholder": {
             "title": f"NosaProfit — {draft.product_name[:60]} ({draft.suggested_discount_pct:g}% / {draft.duration_days}d)",
-            "summary": "Generated from NosaProfit Level-1 recommendation; confirm SKU → variant GID before publish.",
+            "summary": "Generated from NosaProfit recommendation draft; confirm SKU → variant GID before publish.",
+            "campaign_type": str(getattr(draft, "campaign_type", "discount") or "discount"),
+            "campaign_template": getattr(draft, "campaign_template", None),
             "discount_meta": {
                 "value_type": "percentage",
                 "percentage": draft.suggested_discount_pct,
             },
             "window": {"duration_days": draft.duration_days},
             "targeting": {
-                "skus": [draft.sku],
+                "skus": targeting_skus,
                 "merchandise_ids_gql": [],
                 "_note": "Populate variant GIDs after catalog link.",
             },

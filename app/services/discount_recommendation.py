@@ -131,6 +131,39 @@ def build_discount_recommendation_rows(session: Session, upload_id: int) -> list
                     acc[key][5] += qty
                 acc[key][6] = max(acc[key][6], float(oday.toordinal()))
 
+    # --- Related SKUs (co-purchase) ---
+    # Build a simple co-occurrence graph: "items bought together in the same order".
+    # This is deterministic and works without catalog/category data.
+    sku_name_by_sku: dict[str, str] = {}
+    for (sku, product_name) in acc.keys():
+        if sku and product_name and sku not in sku_name_by_sku:
+            sku_name_by_sku[sku] = product_name
+
+    pair_counts: dict[tuple[str, str], int] = {}
+    for o in orders:
+        skus_in_order: list[str] = []
+        for li in o.items or []:
+            sku = (li.sku or "UNKNOWN").strip() or "UNKNOWN"
+            if not sku or sku == "UNKNOWN":
+                continue
+            skus_in_order.append(sku)
+        # Unique SKUs per order to avoid overweighting quantity lines
+        uniq = sorted(set(skus_in_order))
+        if len(uniq) < 2:
+            continue
+        for i in range(len(uniq)):
+            for j in range(i + 1, len(uniq)):
+                a, b = uniq[i], uniq[j]
+                pair_counts[(a, b)] = pair_counts.get((a, b), 0) + 1
+
+    related_by_sku: dict[str, list[dict[str, Any]]] = {}
+    for (a, b), ct in pair_counts.items():
+        related_by_sku.setdefault(a, []).append({"sku": b, "count": ct, "product_name": sku_name_by_sku.get(b, "")})
+        related_by_sku.setdefault(b, []).append({"sku": a, "count": ct, "product_name": sku_name_by_sku.get(a, "")})
+    for sku, lst in related_by_sku.items():
+        lst.sort(key=lambda x: int(x.get("count") or 0), reverse=True)
+        related_by_sku[sku] = lst[:3]
+
     rows: list[dict[str, Any]] = []
     for (sku, product_name), (net_tot, disc_tot, qty_tot, orders_ct, u7, u30, last_ord) in acc.items():
         pre_tot = net_tot + disc_tot
@@ -205,6 +238,7 @@ def build_discount_recommendation_rows(session: Session, upload_id: int) -> list
                 "days_since_last_sale": last_sale_days,
                 "velocity_bucket": velocity_bucket,
                 "confidence": confidence,
+                "related_skus": related_by_sku.get(sku, []),
             }
         )
 
