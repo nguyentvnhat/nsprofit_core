@@ -177,8 +177,7 @@ def process_shopify_csv(
         events = [_signal_event_from_draft(upload.id, d) for d in drafts]
         signal_repo.replace_for_upload(upload.id, events)
 
-        codes = signal_codes(drafts)
-        payloads = evaluate_rules(metric_map, codes)
+        payloads = evaluate_rules(metric_map, drafts)
         narrated = narrate_all(payloads)
         logger.debug(
             "Rules/insights generated for upload_id=%s rules=%s insights=%s",

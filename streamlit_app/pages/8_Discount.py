@@ -51,28 +51,83 @@ render_page_header(
     "Drafts can be accepted/rejected/adjusted and exported today—Shopify one-click execution comes later.",
 )
 
-_engine_label = lambda v: "Level 2 (lite)" if int(v) == 2 else "Level 3 (mix: discount/bundle/flash sale)"
-if hasattr(st, "segmented_control"):
-    engine_level = st.segmented_control(
-        "Discount engine level",
-        options=[2, 3],
-        default=2,
-        format_func=_engine_label,
-        help="Level 3 adds a deterministic campaign_type + template; still requires human approval.",
-    )
-else:
-    engine_level = st.radio(
-        "Discount engine level",
-        options=[2, 3],
-        index=0,
-        format_func=_engine_label,
-        horizontal=True,
-        help="Level 3 adds a deterministic campaign_type + template; still requires human approval.",
-    )
+st.markdown(
+    """
+<style>
+  .np-pill{
+    display:inline-block;
+    padding:2px 10px;
+    border-radius:999px;
+    font-weight:700;
+    font-size:12px;
+    background: rgba(30, 90, 255, 0.10);
+    color: rgba(30, 90, 255, 1.0);
+    border: 1px solid rgba(30, 90, 255, 0.18);
+  }
+  .np-card-title{
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-size: 12px;
+    opacity: .70;
+    font-weight: 700;
+  }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+_engine_label = lambda v: "Level 2 Lite" if int(v) == 2 else "Level 3 Pro"
+tc1, tc2 = st.columns([1.05, 1.25])
+with tc1:
+    with st.container(border=True):
+        h1, h2 = st.columns([10, 1])
+        with h1:
+            st.markdown("<div class='np-card-title'>Discount engine level</div>", unsafe_allow_html=True)
+        with h2:
+            st.caption("⚡")
+        if hasattr(st, "segmented_control"):
+            engine_level = st.segmented_control(
+                "",
+                options=[2, 3],
+                default=2,
+                format_func=_engine_label,
+                label_visibility="collapsed",
+            )
+        else:
+            engine_level = st.radio(
+                "",
+                options=[2, 3],
+                index=0,
+                format_func=_engine_label,
+                horizontal=True,
+                label_visibility="collapsed",
+            )
+
+with tc2:
+    with st.container(border=True):
+        h1, h2 = st.columns([10, 2.2])
+        with h1:
+            st.markdown("<div class='np-card-title'>Draft promo duration</div>", unsafe_allow_html=True)
+        with h2:
+            st.markdown(f"<span class='np-pill'>{int(st.session_state.get('np_dur_days', 3) or 3)} Days</span>", unsafe_allow_html=True)
+        dur = st.slider(
+            "",
+            min_value=1,
+            max_value=14,
+            value=int(st.session_state.get("np_dur_days", 3) or 3),
+            step=1,
+            key="np_dur_days",
+            label_visibility="collapsed",
+        )
+
 engine_level_i = int(engine_level or 2)
 st.caption(
     "Engine: "
-    + ("**Level 2 (lite)** — velocity + confidence + segment policy." if engine_level_i == 2 else "**Level 3** — adds promotion mix (discount/bundle/flash_sale).")
+    + (
+        "**Level 2 (lite)** — velocity + confidence + segment policy."
+        if engine_level_i == 2
+        else "**Level 3** — adds promotion mix (discount/bundle/flash_sale)."
+    )
     + f" (export JSON `level`: {engine_level_i})."
 )
 
@@ -109,6 +164,25 @@ if slow_sig is not None:
     c12.metric("Avg days since last sale", f"{float(ctx.get('avg_days_since_last_sale_active_30d') or 0):.1f}")
     if slow_ins is not None:
         with st.expander("Why this matters (rule insight)", expanded=False):
+            # Decision-ready payload (if present in supporting_data_json)
+            try:
+                sdata = getattr(slow_ins, "supporting_data_json", None) or {}
+                d_obj = (sdata.get("decision_object") if isinstance(sdata, dict) else None) or {}
+                ui = d_obj.get("ui_payload") if isinstance(d_obj, dict) else None
+                if isinstance(ui, dict):
+                    st.info(str(ui.get("highlight_metric") or "").strip() or "Decision-ready summary")
+                    sup = ui.get("supporting_metrics")
+                    if isinstance(sup, list) and sup:
+                        for x in sup[:4]:
+                            sx = str(x or "").strip()
+                            if sx:
+                                st.write(f"- {sx}")
+                    cta = str(ui.get("call_to_action") or "").strip()
+                    if cta:
+                        st.button(cta, disabled=True)
+                    st.divider()
+            except Exception:
+                pass
             st.markdown(f"**{slow_ins.title}**")
             st.write(slow_ins.summary)
             if slow_ins.recommended_action:
@@ -135,8 +209,6 @@ st.caption(
     "Suggested promo % is capped near the same 15% reference used in campaign insights. "
     "Margin band is a deterministic uncertainty range around retained value, not accounting gross margin."
 )
-
-dur = st.slider("Draft promo duration (days)", min_value=1, max_value=14, value=3, step=1)
 drafts = promotion_drafts_from_discount_rows(
     raw_rows,
     upload_id=int(uid),
@@ -640,13 +712,32 @@ else:
 
                 a1, a2, a3, a4 = st.columns([1, 1, 1.2, 2])
                 with a1:
-                    if st.button("Accept", key=f"accept::{_draft_key(d)}", type="primary"):
-                        _log_action(action_status="accepted", d=d)
-                        _persist_status_and_json(sku=sku, status="accepted", draft_json=base_json)
-                        st.session_state["discount_review_idx"] = min(st.session_state["discount_review_idx"] + 1, max(0, len(filtered) - 1))
-                        st.rerun()
+                    b11, b12 = st.columns(2)
+                    with b11:
+                        if st.button("Accept", key=f"accept::{_draft_key(d)}", type="primary"):
+                            _log_action(action_status="accepted", d=d)
+                            _persist_status_and_json(sku=sku, status="accepted", draft_json=base_json)
+                            st.session_state["discount_review_idx"] = min(
+                                st.session_state["discount_review_idx"] + 1, max(0, len(filtered) - 1)
+                            )
+                            st.rerun()
+                    with b12:
+                        if st.button("Reject", key=f"reject::{_draft_key(d)}"):
+                            rr_code = str(st.session_state.get(f"reject_reason::{_draft_key(d)}") or "")
+                            if not rr_code:
+                                rr_code = "not_enough_data"
+                            _log_action(action_status="rejected", d=d, reject_reason=str(rr_code))
+                            _persist_status_and_json(
+                                sku=sku,
+                                status="rejected",
+                                draft_json={**base_json, "review": {"status": "rejected", "reason": str(rr_code)}},
+                            )
+                            st.session_state["discount_review_idx"] = min(
+                                st.session_state["discount_review_idx"] + 1, max(0, len(filtered) - 1)
+                            )
+                            st.rerun()
                 with a2:
-                    rr_code = st.selectbox(
+                    st.selectbox(
                         "Reject reason",
                         options=[x[0] for x in reject_options],
                         format_func=lambda v: dict(reject_options).get(v, v),
@@ -654,15 +745,6 @@ else:
                         key=f"reject_reason::{_draft_key(d)}",
                         label_visibility="collapsed",
                     )
-                    if st.button("Reject", key=f"reject::{_draft_key(d)}"):
-                        _log_action(action_status="rejected", d=d, reject_reason=str(rr_code))
-                        _persist_status_and_json(
-                            sku=sku,
-                            status="rejected",
-                            draft_json={**base_json, "review": {"status": "rejected", "reason": str(rr_code)}},
-                        )
-                        st.session_state["discount_review_idx"] = min(st.session_state["discount_review_idx"] + 1, max(0, len(filtered) - 1))
-                        st.rerun()
                 with a3:
                     if st.button("Skip", key=f"skip::{_draft_key(d)}"):
                         st.session_state["discount_review_idx"] = min(st.session_state["discount_review_idx"] + 1, max(0, len(filtered) - 1))
@@ -746,63 +828,72 @@ else:
                                         step=1,
                                         key=f"adj_bundle_tierpct::{_draft_key(d)}",
                                     )
-                            # Cross-SKU bundle selection (related SKUs derived from co-purchase).
-                            rel_candidates = []
-                            if isinstance(row, dict):
-                                rel_raw = row.get("related_skus")
-                                if isinstance(rel_raw, list):
-                                    for rr in rel_raw[:8]:
-                                        if isinstance(rr, dict) and str(rr.get("sku") or "").strip():
-                                            rel_candidates.append(rr)
-                            rel_labels = ["(same SKU only)"] + [
-                                f"{str(r.get('sku'))}" + (f" — {str(r.get('product_name') or '').strip()}" if str(r.get("product_name") or "").strip() else "")
-                                + (f" (×{int(r.get('count') or 0)})" if int(r.get("count") or 0) > 0 else "")
-                                for r in rel_candidates
-                            ]
-                            rel_choice = st.selectbox(
-                                "Related SKU for bundle",
-                                options=list(range(len(rel_labels))),
-                                format_func=lambda i: rel_labels[int(i)],
-                                index=0,
-                                key=f"adj_bundle_related::{_draft_key(d)}",
-                                help="Derived from co-purchase in historical orders for this upload.",
-                            )
-                            picked = rel_candidates[int(rel_choice) - 1] if int(rel_choice) > 0 and int(rel_choice) - 1 < len(rel_candidates) else {}
-                            picked_sku = str(picked.get("sku") or "").strip()
-                            picked_name = str(picked.get("product_name") or "").strip()
-                            next_template = {
-                                "type": "bundle",
-                                "bundle_style": "cross_sku" if picked_sku else "buy_more_save_more",
-                                "primary_sku": str(sku),
-                                "related_skus": ([{"sku": picked_sku, "product_name": picked_name}] if picked_sku else []),
-                                "tiers": [{"min_qty": int(min_qty), "discount_percent": float(tier_pct)}],
-                            }
-                        else:  # flash_sale
-                            f1, f2 = st.columns(2)
-                            with f1:
-                                win = st.number_input(
-                                    "Flash window (days)",
-                                    min_value=1,
-                                    max_value=7,
-                                    value=int(tmpl.get("recommended_window_days") or min(5, int(new_days) or 3)),
-                                    step=1,
-                                    key=f"adj_flash_window::{_draft_key(d)}",
+                                # Cross-SKU bundle selection (related SKUs derived from co-purchase).
+                                rel_candidates = []
+                                if isinstance(row, dict):
+                                    rel_raw = row.get("related_skus")
+                                    if isinstance(rel_raw, list):
+                                        for rr in rel_raw[:8]:
+                                            if isinstance(rr, dict) and str(rr.get("sku") or "").strip():
+                                                rel_candidates.append(rr)
+                                rel_labels = ["(same SKU only)"] + [
+                                    f"{str(r.get('sku'))}"
+                                    + (
+                                        f" — {str(r.get('product_name') or '').strip()}"
+                                        if str(r.get("product_name") or "").strip()
+                                        else ""
+                                    )
+                                    + (f" (×{int(r.get('count') or 0)})" if int(r.get("count") or 0) > 0 else "")
+                                    for r in rel_candidates
+                                ]
+                                rel_choice = st.selectbox(
+                                    "Related SKU for bundle",
+                                    options=list(range(len(rel_labels))),
+                                    format_func=lambda i: rel_labels[int(i)],
+                                    index=0,
+                                    key=f"adj_bundle_related::{_draft_key(d)}",
+                                    help="Derived from co-purchase in historical orders for this upload.",
                                 )
-                            with f2:
-                                flash_pct = st.slider(
-                                    "Flash discount %",
-                                    min_value=0,
-                                    max_value=30,
-                                    value=int(round(float(tmpl.get("discount_percent") or float(new_pct) or 0.0))),
-                                    step=1,
-                                    key=f"adj_flash_pct::{_draft_key(d)}",
+                                picked = (
+                                    rel_candidates[int(rel_choice) - 1]
+                                    if int(rel_choice) > 0 and int(rel_choice) - 1 < len(rel_candidates)
+                                    else {}
                                 )
-                            next_template = {
-                                "type": "flash_sale",
-                                "discount_percent": float(flash_pct),
-                                "recommended_window_days": int(win),
-                                "urgency": "limited_time",
-                            }
+                                picked_sku = str(picked.get("sku") or "").strip()
+                                picked_name = str(picked.get("product_name") or "").strip()
+                                next_template = {
+                                    "type": "bundle",
+                                    "bundle_style": "cross_sku" if picked_sku else "buy_more_save_more",
+                                    "primary_sku": str(sku),
+                                    "related_skus": ([{"sku": picked_sku, "product_name": picked_name}] if picked_sku else []),
+                                    "tiers": [{"min_qty": int(min_qty), "discount_percent": float(tier_pct)}],
+                                }
+                            else:  # flash_sale
+                                f1, f2 = st.columns(2)
+                                with f1:
+                                    win = st.number_input(
+                                        "Flash window (days)",
+                                        min_value=1,
+                                        max_value=7,
+                                        value=int(tmpl.get("recommended_window_days") or min(5, int(new_days) or 3)),
+                                        step=1,
+                                        key=f"adj_flash_window::{_draft_key(d)}",
+                                    )
+                                with f2:
+                                    flash_pct = st.slider(
+                                        "Flash discount %",
+                                        min_value=0,
+                                        max_value=30,
+                                        value=int(round(float(tmpl.get("discount_percent") or float(new_pct) or 0.0))),
+                                        step=1,
+                                        key=f"adj_flash_pct::{_draft_key(d)}",
+                                    )
+                                next_template = {
+                                    "type": "flash_sale",
+                                    "discount_percent": float(flash_pct),
+                                    "recommended_window_days": int(win),
+                                    "urgency": "limited_time",
+                                }
 
                         note = st.text_input(
                             "Note (optional)",

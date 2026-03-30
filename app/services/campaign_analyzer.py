@@ -114,8 +114,7 @@ def analyze_campaigns(
         metrics = run_all_metrics(orders=c_orders, order_items=c_items, customers=c_customers)
         flat = metrics_as_flat_dict(metrics)
         sigs = run_all_signals(metrics)
-        codes = signal_codes(sigs)
-        payloads = evaluate_rules(flat, codes)
+        payloads = evaluate_rules(flat, sigs)
         narrated = narrate_all(payloads)
 
         insights_out: list[dict[str, Any]] = []

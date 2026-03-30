@@ -188,6 +188,14 @@ def evaluate_rules(
         else _flatten_metrics(metrics)  # type: ignore[arg-type]
     )
     signal_codes = _extract_signal_codes(signals)
+    signal_map: dict[str, dict[str, Any]] = {}
+    if isinstance(signals, list):
+        for s in signals:
+            code = str(s.get("signal_code") or "").strip()
+            if not code:
+                continue
+            # Keep the raw signal payload (incl. context) so narrative/decision layers can render numbers.
+            signal_map[code] = dict(s)
 
     payloads: list[RuleInsightPayload] = []
     for path, doc in _load_yaml_files(base):
@@ -211,6 +219,7 @@ def evaluate_rules(
                     context={
                         "metrics": metric_map,
                         "signals": sorted(signal_codes),
+                        "signal_map": signal_map,
                         "rule_source": str(path),
                         "rule": rule,
                     },
