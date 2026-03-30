@@ -20,6 +20,8 @@ Core orchestration paths:
 - Campaign-level slicing path: `app/services/campaign_analyzer.py`
 - Dashboard assembly path: `app/services/dashboard_service.py`
 
+**SKU discount recommendations & promotion drafts** (parallel path today, not rule-engine fed): see [discount-recommendation.md](discount-recommendation.md).
+
 ---
 
 ## 2) Stage-by-stage mapping (current modules)
@@ -79,6 +81,8 @@ There is no single `decision_formatter.py` yet. The role is distributed:
     - `estimated_impact_text`
 - `streamlit_app/pages/7_Campaigns.py`
   - UI presentation decisions (top opportunities, actions, collapse levels)
+- `streamlit_app/pages/8_Discount.py`
+  - Per-SKU discount suggestions + JSON promotion drafts ([discount-recommendation.md](discount-recommendation.md))
 - `streamlit_app/campaigns_report_pdf.py`
   - PDF-oriented decision presentation
 - `app/services/pdf_export_service.py`
