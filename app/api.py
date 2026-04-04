@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.repositories.merchant_repository import MerchantRepository
 from app.repositories.upload_repository import UploadRepository
+from app.services.discount_guardrails import build_guardrails_from_upload_rows
 from app.services.discount_recommendation import build_discount_recommendation_rows_from_normalized
 from app.services.file_parser import ShopifyExportParseError, parse_shopify_orders_csv
 from app.services.promotion_draft import promotion_drafts_from_discount_rows, promotion_drafts_to_jsonable
@@ -57,43 +58,6 @@ def _configure_discount_file_log() -> None:
 _configure_discount_file_log()
 
 app = FastAPI(title="NosaProfit API", version="0.1.0")
-
-
-def _default_guardrails(*, level: int, duration_days: int) -> dict[str, Any]:
-    lvl = int(level or 3)
-    dur = int(duration_days or 3)
-    items = [
-        {
-            "code": "cap_extra_discount",
-            "label": "Cap extra discount: ≤15% (simple steps: 5/8/10/12/15).",
-        },
-        {
-            "code": "heavy_discount_new_customers",
-            "label": "If already discounted ≥25%, prefer new customers only or skip.",
-        },
-        {
-            "code": "low_confidence_shorter",
-            "label": "Low confidence → run shorter (e.g. 3 days) or skip.",
-        },
-        {
-            "code": "scope_per_product",
-            "label": "Keep discounts scoped per product (avoid site-wide blanket promos).",
-        },
-    ]
-    if lvl < 3:
-        items.insert(
-            0,
-            {
-                "code": "engine_level_note",
-                "label": "Level 2 returns discount-only suggestions (no mix). Use Level 3 for promotion mix.",
-            },
-        )
-    return {
-        "title": "Guardrails (default)",
-        "duration_days": dur,
-        "engine_level": lvl,
-        "items": items,
-    }
 
 
 @app.get("/health")
@@ -162,6 +126,12 @@ async def discount_recommendations(
             )
             drafts_json = promotion_drafts_to_jsonable(drafts)
 
+            guardrails = build_guardrails_from_upload_rows(
+                rows,
+                level=int(level),
+                duration_days=int(duration_days),
+            )
+
             total = len(drafts)
             high_conf = sum(1 for d in drafts if str(getattr(d, "confidence", "") or "").lower().strip() == "high")
             heavy = sum(1 for d in drafts if float(getattr(d, "current_discount_pct", 0.0) or 0.0) >= 25.0)
@@ -190,7 +160,7 @@ async def discount_recommendations(
                     "net_revenue_covered": float(round(net_rev_total, 2)),
                     "strategy_mix": mix,
                 },
-                "guardrails": _default_guardrails(level=int(level), duration_days=int(duration_days)),
+                "guardrails": guardrails,
                 "drafts": drafts_json,
                 "rows": rows[: min(len(rows), int(limit))],
             }
