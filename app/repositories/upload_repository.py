@@ -15,12 +15,14 @@ class UploadRepository:
         self,
         *,
         file_name: str,
+        merchant_id: int | None = None,
         file_type: str = "csv",
         source_type: str = "shopify_csv",
     ) -> Upload:
         _ = (file_type, source_type)  # kept for API compatibility
         row = Upload(
             file_name=file_name,
+            merchant_id=merchant_id,
             status="uploaded",
         )
         self._session.add(row)

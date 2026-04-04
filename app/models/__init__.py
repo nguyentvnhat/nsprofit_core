@@ -7,6 +7,7 @@ from app.models.metric_snapshot import MetricSnapshot
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.ai_campaign_log import AiCampaignLog
+from app.models.merchant import Merchant
 from app.models.promotion_draft import PromotionDraft
 from app.models.raw_order import RawOrder
 from app.models.rule_definition import RuleDefinition
@@ -21,6 +22,7 @@ __all__ = [
     "Order",
     "OrderItem",
     "AiCampaignLog",
+    "Merchant",
     "MetricSnapshot",
     "SignalEvent",
     "Insight",
