@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 
@@ -37,6 +38,125 @@ def fmt_usd(value: float | int | None) -> str:
     if not math.isfinite(v):
         v = 0.0
     return f"${v:,.2f} USD"
+
+
+# Short title + one-line explanation for non-technical readers (internal codes stay in data).
+SIGNAL_CODE_FRIENDLY: dict[str, tuple[str, str]] = {
+    "LOW_REPEAT_MIX": (
+        "Few returning buyers",
+        "Repeat customers make up a smaller share than expected, so retention may need attention.",
+    ),
+    "SOURCE_CONCENTRATION_RISK": (
+        "Too much revenue from one traffic source",
+        "Sales depend heavily on a single channel or source, which raises risk if that source weakens.",
+    ),
+    "HIGH_DISCOUNT_DEPENDENCY_V2": (
+        "Sales lean on discounts",
+        "A large part of revenue is tied to discounted orders, so performance may drop when promos pause.",
+    ),
+    "HIGH_DISCOUNT_DEPENDENCY": (
+        "Sales lean on discounts",
+        "A large part of revenue is tied to discounted orders, so performance may drop when promos pause.",
+    ),
+    "STACKED_DISCOUNTING": (
+        "Multiple discounts stacking",
+        "Compare-at, line, and order-level discounts may be combining and cutting price more than intended.",
+    ),
+    "VOLUME_DRIVEN_GROWTH": (
+        "Growth from more orders, not bigger baskets",
+        "Revenue is growing mainly through volume while average order value is not keeping pace.",
+    ),
+    "HERO_SKU_CONCENTRATION": (
+        "A few products carry most revenue",
+        "A small set of SKUs accounts for an outsized share of sales.",
+    ),
+    "LOW_ORDER_VALUE_PROBLEM": (
+        "Many small orders",
+        "A high share of orders are low-value, which can squeeze margin after acquisition cost.",
+    ),
+    "FREE_SHIPPING_OPPORTUNITY": (
+        "Orders cluster just below free shipping",
+        "Many carts sit near your free-shipping threshold—slight AOV lifts could convert more profitably.",
+    ),
+    "BUNDLE_OPPORTUNITY": (
+        "Products often bought together",
+        "Frequent pairs suggest bundle or kit offers could lift basket size.",
+    ),
+    "DATA_HYGIENE_ISSUE": (
+        "Incomplete product data in the file",
+        "Some revenue is linked to rows with missing SKU, title, or variant data, so product views can look skewed until the export is cleaned.",
+    ),
+    "UNSTABLE_GROWTH": (
+        "Revenue jumps up and down by month",
+        "Month-to-month sales swing more than a steady baseline, so forecasts and cash planning need extra care.",
+    ),
+    "ELEVATED_REFUND_RATE": (
+        "Refunds are high versus revenue",
+        "The share of revenue returned as refunds is above a typical operating range.",
+    ),
+    "FREE_SHIPPING_HEAVY": (
+        "Free shipping used very often",
+        "A high share of orders use free shipping, which can pressure margin if not priced in.",
+    ),
+    "TOP_CUSTOMER_CONCENTRATION_HIGH": (
+        "A few customers drive a large share of sales",
+        "Revenue is concentrated in a small customer set, which increases dependency risk.",
+    ),
+    "SKU_QUANTITY_CONCENTRATION": (
+        "Unit volume focused on few SKUs",
+        "Order quantity is concentrated in a narrow set of products.",
+    ),
+    "PRODUCT_DISCOUNT_RATE_HIGH": (
+        "Heavy discounting on some products",
+        "Discount rates on certain products are elevated compared with the rest of the catalog.",
+    ),
+    "LOW_AOV_PRESSURE": (
+        "Average order size is under pressure",
+        "Typical basket value sits below the reference, which can limit room for acquisition spend.",
+    ),
+}
+
+
+def signal_friendly_pair(signal_code: str | None) -> tuple[str, str]:
+    """Return (short plain-language title, one-sentence explanation)."""
+    code = str(signal_code or "").strip().upper()
+    if code in SIGNAL_CODE_FRIENDLY:
+        return SIGNAL_CODE_FRIENDLY[code]
+    if not code or code == "—":
+        return "—", ""
+    friendly = code.replace("_", " ").title()
+    return friendly, "Triggered from your latest numbers and configured thresholds."
+
+
+def signal_desc(signal_code: str | None) -> str:
+    """One-line business explanation for a signal code."""
+    return signal_friendly_pair(signal_code)[1]
+
+
+def humanize_column_label(name: str) -> str:
+    """Turn ``customer_email``-style names into ``Customer Email`` for table headers."""
+    s = str(name).strip()
+    if not s:
+        return s
+    return " ".join(part.capitalize() for part in s.split("_") if part)
+
+
+def prettify_dataframe_columns(df: Any) -> Any:
+    """Return a copy of a DataFrame with humanized column names (display only)."""
+    import pandas as pd
+
+    if not isinstance(df, pd.DataFrame):
+        return df
+    out = df.copy()
+    out.columns = [humanize_column_label(c) for c in out.columns]
+    return out
+
+
+def prettify_records_columns(rows: list[dict[Any, Any]]) -> list[dict[Any, Any]]:
+    """List-of-dicts rows with humanized keys (display only)."""
+    if not rows:
+        return rows
+    return [{humanize_column_label(str(k)): v for k, v in row.items()} for row in rows]
 
 
 def apply_saas_theme(current_page: str | None = None) -> None:
@@ -177,7 +297,7 @@ def apply_saas_theme(current_page: str | None = None) -> None:
 
 
 def _render_sidebar_menu(current_page: str | None = None) -> None:
-    labels = ["Home", "Overview", "Orders", "Products", "Customers", "Risks", "Insights"]
+    labels = ["Home", "Overview", "Orders", "Products", "Customers", "Risks", "Insights", "Campaigns", "Discount"]
     page_paths = {
         "Home": "Home.py",
         "Overview": "pages/1_Overview.py",
@@ -186,6 +306,8 @@ def _render_sidebar_menu(current_page: str | None = None) -> None:
         "Customers": "pages/4_Customers.py",
         "Risks": "pages/5_Risks.py",
         "Insights": "pages/6_Insights.py",
+        "Campaigns": "pages/7_Campaigns.py",
+        "Discount": "pages/8_Discount.py",
     }
 
     with st.sidebar:
@@ -201,7 +323,17 @@ def _render_sidebar_menu(current_page: str | None = None) -> None:
                 menu_title=None,
                 options=labels,
                 default_index=labels.index(current_page) if current_page in labels else 0,
-                icons=["house", "speedometer2", "receipt", "box-seam", "people", "shield-exclamation", "lightbulb"],
+                icons=[
+                    "house",
+                    "speedometer2",
+                    "receipt",
+                    "box-seam",
+                    "people",
+                    "shield-exclamation",
+                    "lightbulb",
+                    "megaphone",
+                    "percent",
+                ],
                 styles={
                     "container": {"padding": "0!important", "background-color": "transparent"},
                     "nav-link": {

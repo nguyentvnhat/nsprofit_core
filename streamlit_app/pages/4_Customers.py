@@ -9,11 +9,22 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from streamlit_pkg_bootstrap import ensure_streamlit_app_package
+
+ensure_streamlit_app_package(ROOT)
+
 import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, fmt_usd, render_footer, render_page_header
+from streamlit_app.ui_components import (
+    apply_saas_theme,
+    brand_page_icon,
+    fmt_usd,
+    prettify_dataframe_columns,
+    render_footer,
+    render_page_header,
+)
 
 st.set_page_config(page_title="Customers — NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Customers")
@@ -37,5 +48,5 @@ c3.metric("New customer AOV", fmt_usd(float(summary.get("new_aov", 0) or 0.0)))
 c4.metric("Repeat customer AOV", fmt_usd(float(summary.get("repeat_aov", 0) or 0.0)))
 
 st.subheader("Top customers")
-st.dataframe(dashboard.top_customers, use_container_width=True, height=480)
+st.dataframe(prettify_dataframe_columns(dashboard.top_customers), use_container_width=True, height=480)
 render_footer()

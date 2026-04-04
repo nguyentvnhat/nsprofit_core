@@ -1,0 +1,193 @@
+rules:
+  - rule_code: slow_mover_discount_playbook
+    enabled: true
+    category: pricing
+    severity: medium
+    description: "A large share of active SKUs have no sales in the last 7 days (30d active), suggesting slow movers. Recommend targeted discount tests instead of site-wide promos."
+    condition:
+      all:
+        - type: signal
+          signal_code: SKU_SLOW_MOVERS_HIGH
+    title_template: "Many SKUs are slow-moving — use targeted discount tests"
+    summary_template: "Slow-mover share is elevated, which may indicate inventory pressure or weak demand on part of the catalog."
+    implication_template: "Broad discounts can compress retained value. Targeted promos on slow movers can clear stock while protecting core SKUs."
+    # --- Decision-ready + UI-integrated upgrade (additive; engine can ignore unknown keys) ---
+    quantified_signals:
+      slow_mover_ratio: "{{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_share * 100}}%"
+      affected_sku_count: "{{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_count_30d}}"
+      inventory_value_stuck: "${{SKU_SLOW_MOVERS_HIGH.context.slow_mover_net_revenue_30d_usd}}"
+      avg_days_since_last_sale: "{{SKU_SLOW_MOVERS_HIGH.context.avg_days_since_last_sale_active_30d}} days"
+
+    insight:
+      title: "Slow movers: {{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_share * 100}}% of active SKUs ({{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_count_30d}} SKUs)"
+      summary: "About ${{SKU_SLOW_MOVERS_HIGH.context.slow_mover_net_revenue_30d_usd}} (30d net revenue) is tied to slow-moving SKUs; average days since last sale is {{SKU_SLOW_MOVERS_HIGH.context.avg_days_since_last_sale_active_30d}} days."
+      implication: "Use targeted promos to unlock stuck demand without eroding margin across the whole catalog."
+
+    decision:
+      recommended_action: targeted_discount_test
+      discount_range: "10–15%"
+      campaign_type: flash_sale
+      target_segment: new_customers
+      priority_score: "{{priority_score_0_100}}"
+      execution_urgency: high
+
+    expected_impact:
+      sales_uplift_estimate: "+10–25%"
+      profit_impact: neutral
+      inventory_reduction_estimate: "8–18%"
+      estimated_revenue_recovery: "${{revenue_recovery_low}}–${{revenue_recovery_high}}"
+
+    risk:
+      level: medium
+      reason: "If promos run too broadly/too long, customers may learn to wait for discounts and profit per order falls."
+
+    ui_payload:
+      highlight_metric: "{{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_share * 100}}% slow-moving SKUs"
+      supporting_metrics:
+        - "{{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_count_30d}} SKUs affected"
+        - "${{SKU_SLOW_MOVERS_HIGH.context.slow_mover_net_revenue_30d_usd}} 30d net revenue tied to slow movers"
+        - "{{SKU_SLOW_MOVERS_HIGH.context.avg_days_since_last_sale_active_30d}} avg days since last sale"
+      call_to_action: "Create Discount Campaign"
+      recommended_products: "top slow-moving SKUs"
+      preview_discount_logic:
+        margin_before: "{{sku.current_margin_proxy_band}}"
+        margin_after: "{{sku.expected_margin_proxy_band_after_promo}}"
+
+    action_prompt:
+      required_inputs:
+        - product_name
+        - product_code
+        - industry
+        - current_margin_percent
+        - expected_margin_after_discount
+        - discount_percent
+        - campaign_type
+        - inventory_level
+        - sales_history
+        - target_segment
+        - confidence_level
+        - slow_mover_ratio
+        - affected_sku_count
+        - inventory_value_stuck
+        - avg_days_since_last_sale
+        - discount_range
+        - priority_score
+        - execution_urgency
+      system_instruction: |
+        You are an AI Growth Strategist specialized in e-commerce promotions.
+
+        Your task is NOT just to suggest a campaign, but to EXPLAIN and JUSTIFY it in a way that a business owner can quickly approve without overthinking.
+
+        You will receive ONE JSON input that includes:
+        - product fields (product_name, product_code, industry)
+        - promo fields (discount_percent, campaign_type, target_segment)
+        - economics fields (current_margin_percent, expected_margin_after_discount)
+        - demand/inventory fields (inventory_level, sales_history)
+        - confidence fields (confidence_level)
+        - decision context fields (slow_mover_ratio, affected_sku_count, inventory_value_stuck, avg_days_since_last_sale, discount_range, priority_score, execution_urgency)
+
+        Use the decision context to justify WHY this promo is the right play now (signal → money → decision). Tie every reason directly to the input numbers.
+
+        ## Output (STRICT JSON FORMAT)
+        {
+        "why_this_works": [
+        "Short, business-focused reason 1",
+        "Short, business-focused reason 2",
+        "Short, business-focused reason 3"
+        ],
+        "expected_outcome": {
+        "sales_uplift_estimate": "range in % (e.g. +10–25%)",
+        "profit_impact": "positive / neutral / slightly_negative",
+        "primary_goal": "clear goal (e.g. inventory clearance, customer acquisition, revenue boost)"
+        },
+        "risk_assessment": {
+        "risk_level": "low / medium / high",
+        "risk_reason": "1 sentence explaining main risk"
+        },
+        "confidence_explanation": "Explain WHY confidence is high/medium/low in 1 sentence"
+        }
+
+        ## Writing Rules (VERY IMPORTANT)
+        1. Be concise, practical, and business-oriented (no AI fluff).
+        2. Each "why" must map to a real business driver: margin, inventory, demand, customer segment.
+        3. Avoid generic phrases like "this could help increase sales".
+        4. Always tie logic to INPUT data (numbers, ranges, $ impact, counts).
+        5. Make it easy for a non-technical business owner to approve in <5 seconds.
+
+        Do not include any text outside JSON.
+    action_template: |
+      Update `/Discount`
+      You are an AI Growth Strategist specialized in e-commerce promotions.
+
+      Your task is NOT just to suggest a campaign, but to EXPLAIN and JUSTIFY it in a way that a business owner can quickly approve without overthinking.
+
+      ---
+
+      ## Input (provided as JSON)
+
+      * product_name
+      * product_code
+      * industry
+      * current_margin_percent
+      * expected_margin_after_discount
+      * discount_percent
+      * campaign_type (discount / bundle / flash_sale)
+      * inventory_level (low / medium / high)
+      * sales_history (low / medium / high)
+      * target_segment (new_customers / returning_customers / all)
+      * confidence_level (low / medium / high)
+
+      ---
+
+      ## Output (STRICT JSON FORMAT)
+
+      {
+      "why_this_works": [
+      "Short, business-focused reason 1",
+      "Short, business-focused reason 2",
+      "Short, business-focused reason 3"
+      ],
+      "expected_outcome": {
+      "sales_uplift_estimate": "range in % (e.g. +10–25%)",
+      "profit_impact": "positive / neutral / slightly_negative",
+      "primary_goal": "clear goal (e.g. inventory clearance, customer acquisition, revenue boost)"
+      },
+      "risk_assessment": {
+      "risk_level": "low / medium / high",
+      "risk_reason": "1 sentence explaining main risk"
+      },
+      "confidence_explanation": "Explain WHY confidence is high/medium/low in 1 sentence"
+      }
+
+      ---
+
+      ## Writing Rules (VERY IMPORTANT)
+
+      1. Be concise, practical, and business-oriented (no AI fluff).
+      2. Each "why" must map to a real business driver:
+         * margin
+         * inventory
+         * demand
+         * customer segment
+      3. Avoid generic phrases like "this could help increase sales".
+      4. Always tie logic to INPUT data.
+      5. Make it easy for a non-technical business owner to approve in <5 seconds.
+
+      ---
+
+      ## Example Style (DO NOT COPY, JUST FOLLOW TONE)
+
+      "why_this_works":
+      * "High margin (75%) allows safe discounting without hurting profit"
+      * "Low sales history indicates need for demand stimulation"
+      * "Targeting new customers supports acquisition growth"
+
+      ---
+
+      ## Goal
+
+      Your output should make the user think:
+      👉 “This makes sense — I can approve this immediately.”
+
+      Do not include any text outside JSON.
+

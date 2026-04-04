@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     )
     rules_dir: Path | None = None
     log_level: str = "INFO"
+    # When true, future Shopify Admin API create path may run (client not implemented yet).
+    shopify_discount_integration_enabled: bool = False
 
     @field_validator("database_url")
     @classmethod

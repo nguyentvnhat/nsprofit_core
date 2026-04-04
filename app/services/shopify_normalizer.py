@@ -60,6 +60,10 @@ class NormalizedOrder:
     source_name: str | None
     processed_at: object | None
     customer: NormalizedCustomer | None
+    utm_campaign: str | None = None
+    landing_site: str | None = None
+    referrer: str | None = None
+    discount_code: str | None = None
     lines: list[NormalizedLineItem] = field(default_factory=list)
 
 
@@ -182,6 +186,16 @@ def normalize_shopify_rows(rows: list[dict[str, Any]]) -> list[NormalizedOrder]:
         ship_ctry = _get(header, "Shipping Country", "Billing Country")
         shipping_country = str(ship_ctry).strip() if ship_ctry else None
 
+        utm_raw = _get(header, "UTM Campaign", "utm_campaign", "Campaign", "Campaign Name")
+        landing_raw = _get(header, "Landing Site", "Landing page", "Landing Page")
+        ref_raw = _get(header, "Referring Site", "Referring site", "Referrer")
+        disc_raw = _get(header, "Discount Code", "Discount Codes")
+
+        def _opt_str(v: object | None) -> str | None:
+            if v is None or str(v).strip() == "":
+                return None
+            return str(v).strip()
+
         out.append(
             NormalizedOrder(
                 external_name=name,
@@ -203,6 +217,10 @@ def normalize_shopify_rows(rows: list[dict[str, Any]]) -> list[NormalizedOrder]:
                 source_name=str(_get(header, "Source") or "").strip() or None,
                 processed_at=processed_at,
                 customer=cust,
+                utm_campaign=_opt_str(utm_raw),
+                landing_site=_opt_str(landing_raw),
+                referrer=_opt_str(ref_raw),
+                discount_code=_opt_str(disc_raw),
                 lines=lines,
             )
         )
@@ -265,6 +283,10 @@ def _order_to_dict(
         "is_cancelled": is_cancelled,
         "is_repeat_customer": is_repeat,
         "customer_email": email,
+        "utm_campaign": n.utm_campaign,
+        "landing_site": n.landing_site,
+        "referrer": n.referrer,
+        "discount_code": n.discount_code,
     }
 
 

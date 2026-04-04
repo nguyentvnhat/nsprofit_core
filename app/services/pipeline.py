@@ -25,6 +25,7 @@ from app.services.file_parser import ShopifyExportParseError, parse_shopify_orde
 from app.services.metrics_engine import metrics_as_flat_dict, run_all_metrics
 from app.services.narrative_engine import narrate_all
 from app.services.rules_engine import evaluate_rules, sync_rule_definitions
+from app.services.campaign_extractor import campaign_dims_to_notes_payload
 from app.services.shopify_normalizer import normalize_shopify_data
 from app.services.signal_engine import run_all_signals, signal_codes
 from app.services.signal_engine.types import Signal
@@ -115,6 +116,7 @@ def process_shopify_csv(
                 total_quantity=od["total_quantity"],
                 is_cancelled=od["is_cancelled"],
                 is_repeat_customer=od["is_repeat_customer"],
+                notes=campaign_dims_to_notes_payload(od),
             )
             order_repo.add_order(order)
             order_name_to_id[od["order_name"]] = order.id
@@ -175,8 +177,7 @@ def process_shopify_csv(
         events = [_signal_event_from_draft(upload.id, d) for d in drafts]
         signal_repo.replace_for_upload(upload.id, events)
 
-        codes = signal_codes(drafts)
-        payloads = evaluate_rules(metric_map, codes)
+        payloads = evaluate_rules(metric_map, drafts)
         narrated = narrate_all(payloads)
         logger.debug(
             "Rules/insights generated for upload_id=%s rules=%s insights=%s",

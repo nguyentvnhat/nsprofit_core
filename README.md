@@ -2,6 +2,10 @@
 
 Production-minded analytics MVP for Shopify order exports: ingest CSV → normalize → MySQL → metrics → signals → YAML rules → deterministic narratives → Streamlit.
 
+## Product
+
+See `docs/product.md` for product vision, mission, and scope.
+
 ## Layout
 
 - **`app/`** — Core application: config, DB, ORM models, repositories, services (no Streamlit business logic).
@@ -55,3 +59,10 @@ streamlit run streamlit_app/Home.py
 - **New metric**: Add a module under `app/services/metrics_engine/` and register in `metrics_engine/__init__.py`.
 - **New signal**: Add under `app/services/signal_engine/` and register in `signal_engine/__init__.py`.
 - **New rule**: Edit or add YAML in `app/rules/`; optional sync into `rule_definitions` for audit.
+
+
+
+
+alembic upgrade head
+
+python -m app.main provision-db

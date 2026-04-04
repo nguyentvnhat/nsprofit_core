@@ -188,6 +188,14 @@ def evaluate_rules(
         else _flatten_metrics(metrics)  # type: ignore[arg-type]
     )
     signal_codes = _extract_signal_codes(signals)
+    signal_map: dict[str, dict[str, Any]] = {}
+    if isinstance(signals, list):
+        for s in signals:
+            code = str(s.get("signal_code") or "").strip()
+            if not code:
+                continue
+            # Keep the raw signal payload (incl. context) so narrative/decision layers can render numbers.
+            signal_map[code] = dict(s)
 
     payloads: list[RuleInsightPayload] = []
     for path, doc in _load_yaml_files(base):
@@ -211,6 +219,7 @@ def evaluate_rules(
                     context={
                         "metrics": metric_map,
                         "signals": sorted(signal_codes),
+                        "signal_map": signal_map,
                         "rule_source": str(path),
                         "rule": rule,
                     },
@@ -222,7 +231,9 @@ def evaluate_rules(
 def sync_rule_definitions(session: Session, rules_dir: Path | None = None) -> None:
     """Mirror YAML rules into `rule_definitions` for auditing."""
     base = rules_dir or get_settings().resolved_rules_dir
-    for _, doc in _load_yaml_files(base):
+    from datetime import datetime
+
+    for path, doc in _load_yaml_files(base):
         for rule in doc.get("rules", []) or []:
             rid = str(rule["rule_code"])
             row = session.scalars(
@@ -231,6 +242,12 @@ def sync_rule_definitions(session: Session, rules_dir: Path | None = None) -> No
             sev = str(rule.get("severity", "medium"))
             if row is None:
                 row = RuleDefinition(
+                    rule_id=rid,
+                    domain=str(rule.get("category", "general")),
+                    yaml_source_path=str(path),
+                    definition_hash=None,
+                    description=rule.get("description"),
+                    last_synced_at=datetime.utcnow(),
                     rule_code=rid,
                     category=str(rule.get("category", "general")),
                     is_active=bool(rule.get("enabled", True)),
@@ -243,6 +260,11 @@ def sync_rule_definitions(session: Session, rules_dir: Path | None = None) -> No
                 )
                 session.add(row)
             else:
+                row.rule_id = rid
+                row.domain = str(rule.get("category", "general"))
+                row.yaml_source_path = str(path)
+                row.description = rule.get("description")
+                row.last_synced_at = datetime.utcnow()
                 row.category = str(rule.get("category", "general"))
                 row.is_active = bool(rule.get("enabled", True))
                 row.severity = sev

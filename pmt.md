@@ -1,744 +1,3 @@
-# PROMP1
-
-You are a senior Python architect designing a production-minded MVP for a data analytics product called NosaProfit.
-
-Context:
-NosaProfit analyzes Shopify order export data to generate business insights about revenue quality, pricing, customer behavior, and operational risks.
-
-Tech stack:
-- Python 3.11+
-- MySQL
-- SQLAlchemy ORM
-- Pandas
-- Streamlit (for MVP frontend)
-- YAML for rule configuration
-
-Goal:
-Build a clean, modular, extensible project architecture that supports:
-
-1. Upload Shopify CSV
-2. Parse and normalize order + line item data
-3. Store normalized data into MySQL
-4. Compute metrics
-5. Detect business signals
-6. Apply rules
-7. Generate narrative insights
-8. Display results in Streamlit dashboard
-
----
-
-# 🔴 CRITICAL ARCHITECTURAL REQUIREMENTS
-
-1. The system MUST be modular and extensible.
-2. DO NOT put business logic inside Streamlit UI.
-3. Separate clearly:
-   - data models
-   - repositories
-   - services
-   - rules
-   - UI layer
-
-4. Design for future expansion beyond orders:
-   - customers
-   - products
-   - transactions
-   - discounts
-   - refunds
-   - shipping
-
-5. Metrics must be modular:
-   - each metric or metric group should be extendable
-   - do NOT create one giant function
-
-6. Signals must be pluggable:
-   - grouped by domain (revenue, product, customer, risk)
-
-7. Rules must be externalized:
-   - stored in YAML files
-   - NOT hardcoded in Python
-
-8. Insight generation must be separate from rule evaluation:
-   - rule → signal → insight payload → narrative layer
-
-9. Architecture must support future migration into:
-   - API backend (FastAPI or similar)
-   - multi-tenant SaaS
-
----
-
-# 🧱 REQUIRED PROJECT STRUCTURE
-
-Generate a full directory structure like this:
-
-nosaprofit/
-  app/
-    main.py
-    config.py
-    database.py
-
-    models/
-      upload.py
-      raw_order.py
-      order.py
-      order_item.py
-      customer.py
-      metric_snapshot.py
-      signal_event.py
-      insight.py
-      rule_definition.py
-
-    repositories/
-      upload_repository.py
-      order_repository.py
-      metric_repository.py
-      signal_repository.py
-      insight_repository.py
-
-    services/
-      file_parser.py
-      shopify_normalizer.py
-      metrics_engine/
-        __init__.py
-        revenue_metrics.py
-        order_metrics.py
-        product_metrics.py
-        customer_metrics.py
-
-      signal_engine/
-        __init__.py
-        revenue_signals.py
-        product_signals.py
-        customer_signals.py
-        risk_signals.py
-
-      rules_engine.py
-      narrative_engine.py
-      dashboard_service.py
-
-    rules/
-      revenue_rules.yaml
-      product_rules.yaml
-      customer_rules.yaml
-      risk_rules.yaml
-
-    utils/
-      dates.py
-      money.py
-      grouping.py
-      validators.py
-
-  streamlit_app/
-    Home.py
-    pages/
-      1_Overview.py
-      2_Orders.py
-      3_Products.py
-      4_Customers.py
-      5_Risks.py
-      6_Insights.py
-
-  tests/
-  migrations/
-  requirements.txt
-  README.md
-
----
-
-# 🗄️ DATABASE DESIGN REQUIREMENTS
-
-Define SQLAlchemy models for:
-
-- uploads
-- raw_orders
-- customers
-- orders
-- order_items
-- metric_snapshots
-- signal_events
-- insights
-- rule_definitions
-
-Requirements:
-- MySQL-compatible types
-- timestamps (created_at, updated_at)
-- proper indexing
-- foreign keys and relationships
-- nullable vs required fields handled correctly
-
----
-
-# ⚙️ SERVICES REQUIREMENTS
-
-## file_parser.py
-- Read Shopify CSV
-- Validate structure
-- Return structured raw rows
-
-## shopify_normalizer.py
-- Transform raw rows into:
-  - order-level records
-  - order-item-level records
-- Compute:
-  - subtotal
-  - discounts
-  - shipping
-  - tax
-  - refunds
-  - total_price
-  - net_revenue
-  - total_quantity
-- Extract customer + source info
-
-## metrics_engine/
-- Modular metrics calculators
-- Support:
-  - overall metrics
-  - time-based metrics
-  - product metrics
-  - customer metrics
-- Return structured results
-
-## signal_engine/
-- Detect patterns:
-  - revenue vs AOV
-  - discount dependency
-  - product concentration
-  - repeat vs new customer value
-  - refund issues
-  - free shipping overuse
-- Configurable thresholds
-- Return signal objects
-
-## rules_engine.py
-- Load YAML rules
-- Evaluate conditions against metrics/signals
-- Support operators:
-  - >, >=, <, <=, ==, compare-to-metric
-- Output structured insight payloads
-
-## narrative_engine.py
-- Convert rule outputs into:
-  - title
-  - summary
-  - implication
-  - action
-- Must be deterministic (NO LLM calls)
-
-## dashboard_service.py
-- Aggregate data for UI
-- Provide ready-to-use data for Streamlit
-
----
-
-# 📊 STREAMLIT REQUIREMENTS
-
-- Upload Shopify CSV
-- Trigger processing pipeline
-- Display:
-  - KPI cards
-  - charts
-  - tables
-  - insight cards
-- Pages:
-  - Overview
-  - Orders
-  - Products
-  - Customers
-  - Risks
-  - Insights
-
-IMPORTANT:
-- Streamlit must NOT contain business logic
-- Only call service layer
-
----
-
-# 🧠 DESIGN PRINCIPLES
-
-- Clean architecture
-- Separation of concerns
-- Extensibility over shortcuts
-- MVP-ready but scalable
-- Easy to plug in:
-  - new metrics
-  - new signals
-  - new rules
-  - new data sources
-
----
-
-# 📦 OUTPUT REQUIREMENTS
-
-1. Full folder structure
-2. File-by-file explanation
-3. Starter code for:
-   - database connection
-   - models
-   - parser
-   - normalizer
-   - one example metric
-   - one example signal
-   - one example rule
-   - one example insight output
-4. Clean, production-minded code style
-5. Type hints included
-
----
-
-# 🚫 DO NOT
-
-- Do NOT put everything in one file
-- Do NOT hardcode business rules in UI
-- Do NOT tightly couple parsing and metrics
-- Do NOT skip normalization layer
-
----
-
-# ✅ SUCCESS CRITERIA
-
-The output must:
-- Be runnable as a base project
-- Be clean and readable
-- Be extendable without major refactor
-- Support future SaaS direction
-
-
-#PROMPT 2
-You are a senior Python backend engineer.
-
-Continue the NosaProfit project in the CURRENT FOLDER based on the architecture already generated.
-
-Your task is to implement the database foundation and SQLAlchemy models for the NosaProfit MVP.
-
-Tech stack:
-- Python 3.11+
-- SQLAlchemy 2.0 style
-- MySQL
-- pymysql driver
-- Alembic-ready structure
-- type hints required
-
-Important:
-- Follow the existing architecture in the current folder
-- Do NOT redesign the project
-- Do NOT collapse files into one file
-- Keep code modular and production-minded
-- Assume this project will later expand into customers, products, transactions, discounts, refunds, and shipping
-- Use MySQL-compatible field types and defaults
-
----
-
-# GOALS
-
-Implement:
-
-1. database connection layer
-2. declarative base
-3. timestamp mixin
-4. all SQLAlchemy models for MVP
-5. model relationships
-6. indexes and constraints
-7. __init__.py exports for models
-8. a simple test_db.py script that validates table creation
-
----
-
-# REQUIRED FILES TO IMPLEMENT OR UPDATE
-
-app/config.py
-app/database.py
-
-app/models/__init__.py
-app/models/base.py
-app/models/mixins.py
-app/models/upload.py
-app/models/raw_order.py
-app/models/customer.py
-app/models/order.py
-app/models/order_item.py
-app/models/metric_snapshot.py
-app/models/signal_event.py
-app/models/insight.py
-app/models/rule_definition.py
-
-test_db.py
-
-If there is already partial code, improve it instead of replacing architecture.
-
----
-
-# CONFIG REQUIREMENTS
-
-Implement app/config.py to:
-- load environment variables from .env using python-dotenv
-- expose NOSAPROFIT_DATABASE_URL safely
-- raise a clear error if database URL is missing
-
-Expected env var:
-NOSAPROFIT_DATABASE_URL=mysql+pymysql://user:pass@127.0.0.1:3306/nosaprofit
-
----
-
-# DATABASE REQUIREMENTS
-
-Implement app/database.py with:
-- SQLAlchemy engine
-- session factory
-- declarative base import
-- helper to get DB session
-- safe MySQL options
-- future-friendly SQLAlchemy 2.0 style
-
----
-
-# BASE / MIXIN REQUIREMENTS
-
-Create:
-1. base.py
-2. mixins.py
-
-Requirements:
-- use DeclarativeBase
-- create a TimestampMixin
-- created_at and updated_at must be MySQL-safe
-- use server defaults compatible with MySQL
-- avoid invalid datetime defaults
-- use:
-  - server_default=text("CURRENT_TIMESTAMP")
-  - and updated_at with MySQL-safe update behavior if appropriate
-- do NOT use invalid default datetime expressions
-
----
-
-# MODEL REQUIREMENTS
-
-Implement the following tables:
-
-## 1. uploads
-Purpose:
-- track uploaded source files and processing status
-
-Fields:
-- id
-- file_name
-- file_type
-- source_type
-- status
-- row_count
-- uploaded_at
-- processed_at
-- error_message
-- created_at
-- updated_at
-
-Suggested details:
-- source_type example: shopify_csv
-- status example: uploaded / parsed / normalized / processed / failed
-
-Relationships:
-- uploads -> raw_orders
-- uploads -> orders
-- uploads -> metric_snapshots
-- uploads -> signal_events
-- uploads -> insights
-
----
-
-## 2. raw_orders
-Purpose:
-- store raw source rows for traceability/debugging
-
-Fields:
-- id
-- upload_id
-- row_number
-- raw_payload_json
-- created_at
-- updated_at
-
-Requirements:
-- use JSON type if suitable, otherwise MySQL-compatible approach
-- indexed by upload_id and row_number
-
----
-
-## 3. customers
-Purpose:
-- normalized customer-level entity
-
-Fields:
-- id
-- email
-- name
-- first_order_date
-- last_order_date
-- total_orders
-- total_spent
-- created_at
-- updated_at
-
-Requirements:
-- email indexed
-- nullable email allowed because Shopify exports may have missing customer fields
-
-Relationships:
-- customers -> orders
-
----
-
-## 4. orders
-Purpose:
-- normalized order-level record
-
-Fields:
-- id
-- upload_id
-- external_order_id
-- order_name
-- order_date
-- currency
-- financial_status
-- fulfillment_status
-- source_name
-- customer_id
-- shipping_country
-- subtotal_price
-- discount_amount
-- shipping_amount
-- tax_amount
-- refunded_amount
-- total_price
-- net_revenue
-- total_quantity
-- is_cancelled
-- is_repeat_customer
-- created_at
-- updated_at
-
-Requirements:
-- indexes on:
-  - upload_id
-  - external_order_id
-  - order_date
-  - source_name
-  - customer_id
-- choose precise numeric types for money values
-- use Integer for quantities / booleans for flags
-
-Relationships:
-- orders -> upload
-- orders -> customer
-- orders -> order_items
-
----
-
-## 5. order_items
-Purpose:
-- normalized line-item-level records
-
-Fields:
-- id
-- order_id
-- sku
-- product_name
-- variant_name
-- vendor
-- quantity
-- unit_price
-- line_discount_amount
-- line_total
-- net_line_revenue
-- requires_shipping
-- created_at
-- updated_at
-
-Requirements:
-- indexes on:
-  - order_id
-  - sku
-  - product_name
-- money fields use precise numeric type
-
-Relationships:
-- order_items -> orders
-
----
-
-## 6. metric_snapshots
-Purpose:
-- store computed metrics for dashboard and historical comparison
-
-Fields:
-- id
-- upload_id
-- metric_code
-- metric_scope
-- dimension_1
-- dimension_2
-- period_type
-- period_value
-- metric_value
-- created_at
-- updated_at
-
-Examples:
-- metric_code: total_orders, total_revenue, aov
-- metric_scope: overall, product, customer, source
-- period_type: all_time, day, week, month
-
-Requirements:
-- indexed for dashboard lookup
-- metric_value should support decimal numeric values
-
----
-
-## 7. signal_events
-Purpose:
-- store detected business signals
-
-Fields:
-- id
-- upload_id
-- signal_code
-- severity
-- entity_type
-- entity_key
-- signal_value
-- threshold_value
-- signal_context_json
-- created_at
-- updated_at
-
-Requirements:
-- signal_context_json stores structured context
-- indexes on upload_id, signal_code, severity
-
----
-
-## 8. insights
-Purpose:
-- store generated narrative insights
-
-Fields:
-- id
-- upload_id
-- insight_code
-- category
-- priority
-- title
-- summary
-- implication_text
-- recommended_action
-- supporting_data_json
-- created_at
-- updated_at
-
-Requirements:
-- indexes on upload_id, category, priority
-- title/summary should use suitable text lengths
-- implication/recommended_action can be Text
-
----
-
-## 9. rule_definitions
-Purpose:
-- optional persistence for rule definitions if later needed
-
-Fields:
-- id
-- rule_code
-- category
-- is_active
-- severity
-- condition_json
-- title_template
-- summary_template
-- implication_template
-- action_template
-- created_at
-- updated_at
-
-Requirements:
-- unique rule_code
-- JSON/text for condition_json
-- this table is future-ready even if YAML rules are primary in MVP
-
----
-
-# MODELING RULES
-
-1. Use SQLAlchemy 2.0 typed ORM style:
-   - Mapped[]
-   - mapped_column()
-   - relationship()
-
-2. Use Decimal-friendly numeric columns for money:
-   - Numeric(18, 2) or similar
-
-3. Use clear nullable settings
-4. Use sensible String lengths
-5. Add __repr__ only if useful and concise
-6. Add back_populates consistently
-7. Add cascade behavior where appropriate
-8. Add explicit __tablename__
-
----
-
-# MODELS INIT REQUIREMENT
-
-In app/models/__init__.py export:
-- Base
-- all model classes
-
-This must allow:
-
-from app.models import Base, Upload, RawOrder, Customer, Order, OrderItem, MetricSnapshot, SignalEvent, Insight, RuleDefinition
-
----
-
-# TEST SCRIPT REQUIREMENT
-
-Implement test_db.py that:
-- imports engine
-- imports Base
-- imports all models
-- runs Base.metadata.create_all(bind=engine)
-- prints a clear success message
-- catches exceptions and prints readable failure output
-
----
-
-# OUTPUT FORMAT REQUIREMENTS
-
-Return:
-1. each file path
-2. the code for that file
-3. only files relevant to this task
-4. code must be directly usable
-
----
-
-# IMPORTANT SAFETY / QUALITY NOTES
-
-- Do NOT use invalid MySQL datetime defaults
-- Do NOT use SQLite-specific behavior
-- Do NOT write pseudo-code
-- Do NOT leave TODO placeholders for core fields
-- Do NOT move business logic into models
-- Keep models clean and focused on persistence
-
----
-
-# SUCCESS CRITERIA
-
-The generated code must:
-- work with MySQL
-- avoid the previous created_at default error
-- be migration-friendly
-- support future expansion
-- preserve the project architecture already created
-
-
 #PROMPT 3
 
 You are a senior Python data engineer.
@@ -1756,3 +1015,603 @@ REQUIREMENTS:
 6. Handle empty groups gracefully.
 
 7. Keep the page concise and polished.
+
+
+######################################################
+#Prompt 17 
+You are a senior Python data engineer and product architect.
+
+Continue the CURRENT NosaProfit codebase in the current folder.
+
+IMPORTANT:
+- Reuse the existing architecture
+- Do NOT redesign the project
+- Do NOT break the current pipeline
+- Do NOT move business logic into Streamlit
+- Do NOT modify existing metrics/signal/rules/insight logic unless absolutely necessary
+- Treat campaign analysis as an additional dimension layer on top of the current system
+
+CURRENT PIPELINE:
+orders -> metrics -> signals -> rules -> insights
+
+GOAL:
+Add a "Campaign Dimension Layer" so the existing pipeline can run per campaign, without breaking the overall store-level analysis.
+
+==================================================
+OBJECTIVE
+==================================================
+
+Implement campaign-based analysis for NosaProfit so we can answer:
+
+- Which campaign is driving revenue?
+- Which campaign is too dependent on discounts?
+- Which campaign has weak order quality?
+- Which campaign should be scaled, optimized, or stopped?
+
+The implementation must support:
+
+1. campaign extraction from normalized order data
+2. grouping orders by campaign
+3. running the existing analysis pipeline per campaign
+4. returning structured campaign-level results
+5. preparing campaign-level summary data for Streamlit/dashboard usage
+
+==================================================
+ARCHITECTURAL RULES
+==================================================
+
+1. DO NOT rewrite the current engines.
+2. DO NOT hardcode campaign-specific business rules inside metrics_engine, signal_engine, or rules_engine.
+3. Campaign must be treated as a dimension, not as a special-case logic branch.
+4. Add a thin orchestration layer only.
+5. Keep code modular, typed, production-minded, and easy to extend.
+6. Preserve existing overall analysis behavior.
+
+==================================================
+FILES TO ADD OR UPDATE
+==================================================
+
+Create or update only these files if needed:
+
+app/services/campaign_extractor.py
+app/services/campaign_analyzer.py
+app/services/dashboard_service.py
+
+If needed, you may also make minimal safe updates to:
+app/services/shopify_normalizer.py
+
+Do not touch Streamlit pages yet unless required for compatibility.
+
+==================================================
+1. CAMPAIGN EXTRACTION
+==================================================
+
+Create:
+app/services/campaign_extractor.py
+
+Implement a reusable campaign extraction layer.
+
+Expected function(s):
+
+def extract_campaign_key(order: dict) -> str:
+    ...
+
+def group_orders_by_campaign(orders: list[dict]) -> dict[str, list[dict]]:
+    ...
+
+Requirements:
+
+- Extract campaign from available normalized order fields
+- Use a fallback priority chain
+- Return a normalized campaign key string
+- Never crash on missing fields
+- Unknown/empty values should map to "unknown"
+
+Recommended fallback priority:
+1. utm_campaign
+2. landing_site
+3. referrer
+4. source_name
+5. discount_code
+6. "unknown"
+
+Also:
+- normalize whitespace
+- lowercase campaign keys
+- trim overly long raw values if needed
+- keep implementation deterministic
+
+==================================================
+2. CAMPAIGN ANALYZER
+==================================================
+
+Create:
+app/services/campaign_analyzer.py
+
+Implement orchestration that runs the existing analysis pipeline per campaign.
+
+Expected function:
+
+def analyze_campaigns(
+    orders: list[dict],
+    order_items: list[dict],
+    customers: list[dict],
+) -> list[dict]:
+    ...
+
+Requirements:
+
+- Group orders by campaign
+- Map related order_items to each campaign using order_id / external_order_id
+- Map related customers if possible
+- For each campaign:
+    - compute metrics using existing metrics engine
+    - generate signals using existing signal engine
+    - evaluate rules using existing rules engine
+    - generate insights using existing narrative/insight layer
+- Return structured campaign-level results
+
+Each campaign result should look like:
+
+{
+  "campaign": "facebook_ads",
+  "order_count": 120,
+  "metrics": {...},
+  "signals": [...],
+  "insights": [...],
+  "summary": {
+    "revenue": 12345.67,
+    "net_revenue": 10222.10,
+    "discount_rate": 0.18,
+    "aov": 85.20,
+    "risk_level": "high"
+  }
+}
+
+Risk level suggestion:
+- high if any high severity signals exist
+- medium if any medium severity signals exist
+- low otherwise
+
+Do not hardcode too much domain logic.
+Keep it lightweight and derived from existing results.
+
+==================================================
+3. DASHBOARD SERVICE INTEGRATION
+==================================================
+
+Update:
+app/services/dashboard_service.py
+
+Goal:
+Expose campaign analysis results in the dashboard service output without breaking existing behavior.
+
+Requirements:
+
+- Keep the current dashboard data structure working
+- Add campaign-related fields in a backward-compatible way
+- If no campaign data can be derived, return empty/default values gracefully
+
+Suggested additional output fields:
+
+campaign_results: list[dict]
+campaign_summary_table: list[dict]
+top_campaign_risks: list[dict]
+top_campaign_insights: list[dict]
+
+campaign_summary_table row format:
+
+[
+  {
+    "campaign": "facebook_ads",
+    "orders": 120,
+    "revenue": 12345.67,
+    "net_revenue": 10222.10,
+    "discount_rate": 0.18,
+    "aov": 85.20,
+    "risk_level": "high"
+  }
+]
+
+top_campaign_risks:
+- flatten top high-severity campaign signals
+- include campaign name in each row
+
+top_campaign_insights:
+- flatten top campaign insights
+- include campaign name in each row
+
+==================================================
+4. DATA COMPATIBILITY
+==================================================
+
+The code must work with the current normalized data shape as much as possible.
+
+If normalized orders currently do not contain campaign-friendly fields, make only minimal safe additions in shopify_normalizer.py to preserve fields such as:
+
+- utm_campaign
+- landing_site
+- referrer
+- source_name
+- discount_code
+
+Do not refactor the whole normalizer.
+
+==================================================
+5. SAFETY / QUALITY RULES
+==================================================
+
+- Use type hints
+- Keep functions small
+- Add concise docstrings
+- Handle missing keys safely
+- Avoid side effects
+- Avoid DB writes in this layer
+- No TODO placeholders
+- No pseudo-code
+- Code must be directly runnable
+
+==================================================
+6. OUTPUT FORMAT
+==================================================
+
+Return:
+1. each file path changed
+2. full code for each changed file
+3. brief explanation per file
+4. preserve existing imports and style where possible
+
+==================================================
+SUCCESS CRITERIA
+==================================================
+
+The implementation is successful if:
+
+- overall store-level pipeline still works
+- campaign-level analysis runs without breaking existing logic
+- campaign summary table can be rendered in Streamlit later
+- high-risk / high-discount campaigns are visible from structured output
+- architecture remains clean and extensible
+
+
+######################################################
+#Prompt 18
+You are a senior revenue analytics engineer and product architect.
+
+Continue the CURRENT NosaProfit codebase in the current folder.
+
+IMPORTANT:
+- Reuse the existing architecture
+- Do NOT redesign the project
+- Do NOT break the current store-level pipeline
+- Do NOT move business logic into Streamlit UI
+- Do NOT rewrite the current metrics, signals, rules, or narrative engines unless absolutely necessary
+- Implement a post-processing enrichment layer for campaign insights
+- Keep code directly runnable and production-minded
+
+CURRENT STATE:
+The /Campaigns page already shows:
+- campaign_summary_table
+- high-severity signals by campaign
+- top_campaign_insights
+
+However, top_campaign_insights are still too qualitative.
+They need quantified business impact and ranking so the page becomes more decision-oriented and executive-friendly.
+
+==================================================
+GOAL
+==================================================
+
+Enrich campaign insights with quantified business impact and ranking.
+
+We want each campaign insight to answer:
+- How big is this problem/opportunity?
+- How much revenue is affected?
+- What is the estimated leakage or upside?
+- Which campaign insight should be fixed first?
+
+==================================================
+ARCHITECTURAL RULES
+==================================================
+
+1. Do NOT hardcode this logic in Streamlit pages.
+2. Do NOT break the existing campaign analysis flow.
+3. Add a thin post-processing enrichment layer after campaign analysis.
+4. The enrichment layer must be deterministic and based only on existing campaign metrics, signals, and insights.
+5. If some fields are missing, fail gracefully and still return usable output.
+6. Use type hints, concise docstrings, small functions, and readable code.
+
+==================================================
+FILES TO ADD OR UPDATE
+==================================================
+
+Create or update only these files if needed:
+
+app/services/campaign_insight_enricher.py
+app/services/dashboard_service.py
+
+You may also make minimal safe updates to:
+app/services/campaign_analyzer.py
+
+Do NOT modify Streamlit pages yet unless required for compatibility.
+
+==================================================
+1. CREATE A CAMPAIGN INSIGHT ENRICHER
+==================================================
+
+Create:
+app/services/campaign_insight_enricher.py
+
+Implement deterministic enrichment for campaign insights.
+
+Expected main function:
+
+def enrich_campaign_insights(
+    campaign_results: list[dict],
+) -> list[dict]:
+    ...
+
+Input:
+- campaign_results from the existing campaign analyzer
+- each campaign result already contains:
+  - campaign
+  - metrics
+  - signals
+  - insights
+  - summary
+
+Output:
+Return a flattened list of enriched campaign insights.
+
+Each enriched campaign insight must include:
+
+{
+  "campaign": "web",
+  "title": "Discount becoming default sales mechanism",
+  "summary": "...",
+  "implication": "...",
+  "action": "...",
+  "priority": "high",
+  "category": "pricing",
+  "signal_code": "HIGH_DISCOUNT_DEPENDENCY",
+  "revenue": 26130.18,
+  "net_revenue": 26038.29,
+  "orders": 437,
+  "aov": 59.58,
+  "discount_rate": 0.0595,
+  "impacted_revenue": 26130.18,
+  "estimated_loss": 0.0,
+  "opportunity_size": 0.0,
+  "priority_score": 82.5,
+  "rank": 1,
+  "why_now": "This campaign represents a large share of revenue and shows a pricing-related risk."
+}
+
+==================================================
+2. BUSINESS IMPACT LOGIC
+==================================================
+
+Implement lightweight valuation logic using profit-proxy / revenue-proxy, not true profit.
+
+Do NOT require ads spend or COGS.
+
+For each insight, calculate these fields when possible:
+
+A. impacted_revenue
+- default: campaign revenue
+- if product/entity-specific insight later exists, allow partial impacted revenue
+- for now, use campaign revenue for overall campaign-level insights
+
+B. estimated_loss
+Use deterministic rules by insight/signal category.
+
+Suggested proxy logic:
+
+1. high discount dependency / pricing issue
+- target_discount_rate = 0.15
+- estimated_loss = max(discount_rate - target_discount_rate, 0) * revenue
+
+2. stacked discounting
+- estimated_loss = revenue * min(discount_rate, 0.10)
+- keep conservative
+
+3. low AOV / order value structure issue
+- target_aov = 65.0
+- opportunity_size = max(target_aov - aov, 0) * orders
+- estimated_loss can remain 0 if not directly a leakage
+
+4. refund / return issue
+- if refunded_amount or refund rate is available, use that as estimated_loss
+- otherwise leave 0 safely
+
+5. source concentration / campaign concentration risk
+- estimated_loss = 0
+- opportunity_size = 0
+- but still assign a high priority score if revenue is large
+
+6. volume-driven growth / low quality growth
+- opportunity_size = revenue * 0.03 as conservative proxy
+- only if revenue_growth > 0 and aov_growth <= 0 signals are present
+
+If no suitable formula exists:
+- estimated_loss = 0
+- opportunity_size = 0
+
+Also calculate:
+- affected_revenue_share = impacted_revenue / total_campaign_revenue_in_view
+- use 0 safely if total is zero
+
+==================================================
+3. PRIORITY SCORING
+==================================================
+
+Implement a deterministic priority scoring model.
+
+Expected output:
+- priority_score as a float from 0 to 100
+- rank assigned after sorting descending
+
+Suggested scoring components:
+
+A. revenue impact score (0-40)
+- based on affected_revenue_share
+
+B. severity score (0-25)
+- high = 25
+- medium = 15
+- low = 8
+
+C. leakage/opportunity score (0-25)
+- based on estimated_loss + opportunity_size relative to total campaign revenue in view
+
+D. strategic urgency score (0-10)
+- pricing / discount / refund issues = 10
+- growth quality / AOV / concentration = 7
+- hygiene / informational = 4
+
+Formula suggestion:
+priority_score =
+    revenue_impact_score
+  + severity_score
+  + leakage_score
+  + urgency_score
+
+Clamp to 100 if needed.
+
+After scoring:
+- sort descending
+- assign rank starting from 1
+
+==================================================
+4. WHY_NOW FIELD
+==================================================
+
+Generate a short deterministic why_now sentence for each enriched insight.
+
+Examples:
+- "This campaign represents 94.0% of revenue in view and exceeds the target discount rate."
+- "This campaign has sub-target AOV across 437 orders, making the issue scalable."
+- "This is a high-severity pricing issue on one of the largest campaign buckets."
+
+Do NOT use any LLM calls.
+Keep it deterministic and concise.
+
+==================================================
+5. SIGNAL / INSIGHT MAPPING
+==================================================
+
+Map existing insight/signal types into valuation categories.
+
+Support matching using either:
+- insight_code
+- signal_code
+- title keywords
+- category keywords
+
+Handle these categories if possible:
+- pricing
+- growth_quality
+- aov_structure
+- refund
+- concentration
+- data_hygiene
+
+Do not fail if some codes differ in the current codebase.
+Use robust matching with helper functions.
+
+==================================================
+6. DASHBOARD SERVICE INTEGRATION
+==================================================
+
+Update:
+app/services/dashboard_service.py
+
+Requirements:
+
+- Preserve existing dashboard behavior
+- Keep existing campaign_summary_table
+- Keep existing top_campaign_insights if needed, but enrich it
+- Add or replace campaign insight output with enriched results
+
+Suggested additional dashboard fields:
+
+enriched_campaign_insights: list[dict]
+top_campaign_insights: list[dict]   # now enriched + ranked
+campaign_opportunity_summary: dict
+
+campaign_opportunity_summary example:
+{
+  "total_estimated_loss": 1556.24,
+  "total_opportunity_size": 932.18,
+  "top_priority_campaign": "web",
+  "top_priority_title": "Discount becoming default sales mechanism"
+}
+
+For top_campaign_insights:
+- return the top 10 enriched insights sorted by priority_score desc
+
+==================================================
+7. DISPLAY-FRIENDLY OUTPUT SHAPE
+==================================================
+
+Make the enriched insight rows easy for Streamlit to display later.
+
+Each row should be render-ready and include at minimum:
+
+- campaign
+- title
+- priority
+- category
+- signal_code
+- revenue
+- net_revenue
+- orders
+- aov
+- discount_rate
+- impacted_revenue
+- estimated_loss
+- opportunity_size
+- priority_score
+- rank
+- why_now
+- summary
+- implication
+- action
+
+Round numeric display fields reasonably but keep internal calculations stable.
+
+==================================================
+8. SAFETY / QUALITY RULES
+==================================================
+
+- Use type hints
+- No TODO placeholders
+- No pseudo-code
+- No DB writes
+- No Streamlit logic
+- No hidden dependencies
+- Keep functions pure
+- Handle missing values safely
+- Code must be directly runnable in current architecture
+
+==================================================
+9. OUTPUT FORMAT
+==================================================
+
+Return:
+1. each file path changed
+2. full code for each changed file
+3. brief explanation per file
+4. preserve existing imports and style where possible
+
+==================================================
+SUCCESS CRITERIA
+==================================================
+
+The implementation is successful if:
+
+- /Campaigns can later display insight rows with quantified impact
+- insights are ranked by business importance, not only listed
+- the top items clearly communicate what is at stake
+- the existing architecture remains intact
+- no store-level logic is broken

@@ -8,12 +8,96 @@ from typing import Any
 from app.services.rules_engine import RuleInsightPayload
 
 
+def _resolve_path(obj: Any, path: str) -> Any:
+    cur: Any = obj
+    for part in [p for p in str(path or "").split(".") if p]:
+        if isinstance(cur, dict):
+            cur = cur.get(part)
+        elif isinstance(cur, (list, tuple)):
+            try:
+                cur = cur[int(part)]
+            except Exception:
+                return None
+        else:
+            try:
+                cur = getattr(cur, part)
+            except Exception:
+                return None
+        if cur is None:
+            return None
+    return cur
+
+
+def _render_mustache(template: str, ctx: dict[str, Any]) -> str:
+    """
+    Render `{{path.to.value}}` tokens using a dotted-path resolver.
+    Unknown tokens remain unchanged.
+    """
+    import re
+
+    def repl(m: re.Match) -> str:
+        key = str(m.group(1) or "").strip()
+        val = _resolve_path(ctx, key)
+        if val is None:
+            return m.group(0)
+        # Keep formatting simple/deterministic (no locale).
+        if isinstance(val, float):
+            # Avoid long floats in UI copy
+            return str(round(val, 4)).rstrip("0").rstrip(".")
+        return str(val)
+
+    return re.sub(r"\{\{\s*([^}]+?)\s*\}\}", repl, str(template or ""))
+
+
 def _format_template(template: str, context: dict[str, Any]) -> str:
-    """Safe deterministic formatter: unknown keys keep template unchanged."""
+    """Safe deterministic formatter supporting both `.format()` and `{{ }}` tokens."""
+    out = str(template or "")
+    out = _render_mustache(out, context)
     try:
-        return template.format(**context)
+        return out.format(**context)
     except Exception:
-        return template
+        return out
+
+
+def _render_any(node: Any, ctx: dict[str, Any]) -> Any:
+    if isinstance(node, str):
+        return _format_template(node, ctx)
+    if isinstance(node, list):
+        return [_render_any(x, ctx) for x in node]
+    if isinstance(node, dict):
+        return {str(k): _render_any(v, ctx) for k, v in node.items()}
+    return node
+
+
+def _compute_decision_vars(rule_code: str, ctx: dict[str, Any]) -> dict[str, Any]:
+    """
+    Compute derived numeric vars used by decision-ready templates.
+    Keep deterministic and safe (missing context => zeros).
+    """
+    out: dict[str, Any] = {}
+    if rule_code == "slow_mover_discount_playbook":
+        sig = ctx.get("SKU_SLOW_MOVERS_HIGH") if isinstance(ctx.get("SKU_SLOW_MOVERS_HIGH"), dict) else {}
+        sc = sig.get("context") if isinstance(sig, dict) else {}
+        sc = sc if isinstance(sc, dict) else {}
+        slow_share = float(sc.get("slow_mover_sku_share") or 0.0)
+        avg_days = float(sc.get("avg_days_since_last_sale_active_30d") or 0.0)
+        active = float(sc.get("active_sku_count_30d") or 0.0)
+        slow_cnt = int(round(active * slow_share)) if active > 0 and slow_share > 0 else 0
+
+        # If the signal context doesn't have money, compute a conservative proxy (0).
+        stuck = float(sc.get("slow_mover_net_revenue_30d_usd") or 0.0)
+
+        # Priority score: weighted by ratio + staleness + money (caps at 100).
+        score = (slow_share * 100.0) * 1.2 + avg_days * 1.0 + (stuck / 1000.0) * 1.5
+        out["priority_score_0_100"] = int(max(0, min(100, round(score))))
+
+        # Revenue recovery proxy bounds.
+        out["revenue_recovery_low"] = round(stuck * 0.10, 0)
+        out["revenue_recovery_high"] = round(stuck * 0.25, 0)
+
+        # Convenience: expose computed count if missing upstream.
+        out["slow_mover_sku_count_30d"] = int(sc.get("slow_mover_sku_count_30d") or slow_cnt)
+    return out
 
 
 @dataclass(frozen=True)
@@ -164,15 +248,43 @@ def generate_business_insights(
 
 def narrate(payload: RuleInsightPayload) -> NarratedInsight:
     m = payload.context.get("metrics", {})
-    ctx = {
+    ctx: dict[str, Any] = {
         **{k: v for k, v in m.items() if isinstance(v, (int, float))},
         "signal_count": len(payload.context.get("signals", [])),
     }
+    sig_map = payload.context.get("signal_map") or {}
+    if isinstance(sig_map, dict):
+        # Expose signals by code for templates like {{SKU_SLOW_MOVERS_HIGH.context...}}
+        for k, v in sig_map.items():
+            if isinstance(k, str) and isinstance(v, dict):
+                ctx[k] = v
+        ctx["signal"] = sig_map
+
+    # Derived vars for decision-ready templates
+    ctx.update(_compute_decision_vars(payload.rule_code, ctx))
+
     templates = payload.templates or {}
     title_t = templates.get("title_template") or f"Rule triggered: {payload.rule_code}"
     summary_t = templates.get("summary_template") or "A configured rule matched current metrics and signals."
     implication_t = templates.get("implication_template") or ""
     action_t = templates.get("action_template") or ""
+
+    rule = payload.context.get("rule") or {}
+    decision_object = None
+    if isinstance(rule, dict):
+        # Render the new decision-ready blocks if present (additive; safe if absent).
+        decision_object = _render_any(
+            {
+                "quantified_signals": rule.get("quantified_signals"),
+                "insight": rule.get("insight"),
+                "decision": rule.get("decision"),
+                "expected_impact": rule.get("expected_impact"),
+                "risk": rule.get("risk"),
+                "ui_payload": rule.get("ui_payload"),
+                "action_prompt": rule.get("action_prompt"),
+            },
+            ctx,
+        )
     return NarratedInsight(
         rule_code=payload.rule_code,
         category=payload.category,
@@ -186,6 +298,7 @@ def narrate(payload: RuleInsightPayload) -> NarratedInsight:
             "category": payload.category,
             "context": payload.context,
             "templates": templates,
+            "decision_object": decision_object,
         },
     )
 

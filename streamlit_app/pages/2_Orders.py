@@ -9,12 +9,22 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from streamlit_pkg_bootstrap import ensure_streamlit_app_package
+
+ensure_streamlit_app_package(ROOT)
+
 import pandas as pd
 import streamlit as st
 
 from app.database import session_scope
 from app.services.dashboard_service import get_dashboard_data
-from streamlit_app.ui_components import apply_saas_theme, brand_page_icon, render_footer, render_page_header
+from streamlit_app.ui_components import (
+    apply_saas_theme,
+    brand_page_icon,
+    prettify_dataframe_columns,
+    render_footer,
+    render_page_header,
+)
 
 st.set_page_config(page_title="Orders — NosaProfit", page_icon=brand_page_icon(), layout="wide")
 apply_saas_theme(current_page="Orders")
@@ -61,5 +71,5 @@ if selected_countries:
 if selected_statuses:
     filtered = filtered[filtered["status"].isin(selected_statuses)]
 
-st.dataframe(filtered, use_container_width=True, height=520)
+st.dataframe(prettify_dataframe_columns(filtered), use_container_width=True, height=520)
 render_footer()
