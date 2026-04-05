@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Path, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -63,6 +63,27 @@ app = FastAPI(title="NosaProfit API", version="0.1.0")
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/dashboard/{upload_id}")
+def get_dashboard_json(
+    upload_id: int = Path(..., ge=1),
+    db: Session = Depends(get_db),
+    merchant_code: str | None = Query(None, description="Optional portal merchant code (for future ACL)"),
+) -> dict[str, Any]:
+    """
+    Return serialized dashboard data for an existing upload (repair / lazy load for merchant portal).
+    """
+    _ = (merchant_code or "").strip()  # reserved for ownership checks
+    try:
+        dashboard = get_dashboard_data(db, upload_id=int(upload_id))
+        return dashboard_data_to_jsonable(dashboard)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("get_dashboard_json failed upload_id=%s", upload_id)
+        raise HTTPException(
+            status_code=404,
+            detail=f"dashboard not available: {type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @app.post("/api/discount")
