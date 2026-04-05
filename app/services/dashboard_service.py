@@ -182,6 +182,82 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
     )
 
 
+def dashboard_data_to_jsonable(d: DashboardData) -> dict[str, Any]:
+    """
+    Serialize :class:`DashboardData` for JSON API responses (Laravel / merchant portal).
+
+    Converts pandas frames to record lists and normalizes datetimes / decimals.
+    """
+    import json
+    import math
+    from datetime import date, datetime
+    from decimal import Decimal
+
+    import numpy as np
+    import pandas as pd
+
+    def df_to_records(df: pd.DataFrame | None) -> list[dict[str, Any]]:
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            return []
+        try:
+            raw = df.to_json(orient="records", date_format="iso", default_handler=str)
+            return json.loads(raw)
+        except Exception:
+            return []
+
+    def safe_obj(obj: Any) -> Any:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return {str(k): safe_obj(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [safe_obj(x) for x in obj]
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            x = float(obj)
+            return None if math.isnan(x) or math.isinf(x) else x
+        if isinstance(obj, float):
+            return None if math.isnan(obj) or math.isinf(obj) else obj
+        if isinstance(obj, (str, int, bool)):
+            return obj
+        return str(obj)
+
+    return {
+        "upload_id": int(d.upload_id),
+        "file_name": str(d.file_name),
+        "status": str(d.status),
+        "kpis": safe_obj(d.kpis),
+        "revenue_over_time": df_to_records(d.revenue_over_time),
+        "orders_over_time": df_to_records(d.orders_over_time),
+        "orders_table": df_to_records(d.orders_table),
+        "products_table": df_to_records(d.products_table),
+        "revenue_by_sku": df_to_records(d.revenue_by_sku),
+        "top_3_sku_share": float(d.top_3_sku_share),
+        "top_3_line_revenue": float(d.top_3_line_revenue),
+        "products_revenue_total": float(d.products_revenue_total),
+        "customer_summary": safe_obj(d.customer_summary),
+        "top_customers": df_to_records(d.top_customers),
+        "signals_by_severity": safe_obj(d.signals_by_severity),
+        "insights": safe_obj(d.insights),
+        "money_summary": safe_obj(d.money_summary),
+        "quick_wins": safe_obj(d.quick_wins),
+        "loss_drivers": safe_obj(d.loss_drivers),
+        "campaign_results": safe_obj(d.campaign_results),
+        "campaign_summary_table": safe_obj(d.campaign_summary_table),
+        "top_campaign_risks": safe_obj(d.top_campaign_risks),
+        "top_campaign_insights": safe_obj(d.top_campaign_insights),
+        "enriched_campaign_insights": safe_obj(d.enriched_campaign_insights),
+        "campaign_opportunity_summary": safe_obj(d.campaign_opportunity_summary),
+    }
+
+
 def export_executive_report(
     session: Session,
     *,

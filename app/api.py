@@ -1,14 +1,14 @@
 """
 HTTP API for external clients (e.g. Laravel) to request discount recommendations.
 
-Reads an uploaded Shopify CSV and returns JSON. May persist merchant/upload rows when DB is configured.
+Reads an uploaded Shopify CSV, runs the full ingestion + analytics pipeline (same as Streamlit Home),
+returns discount drafts plus a serialized dashboard payload for the merchant portal.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +17,12 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.repositories.merchant_repository import MerchantRepository
-from app.repositories.upload_repository import UploadRepository
+from app.services.dashboard_service import dashboard_data_to_jsonable, get_dashboard_data
 from app.services.discount_guardrails import build_guardrails_from_upload_rows
-from app.services.discount_recommendation import build_discount_recommendation_rows_from_normalized
-from app.services.file_parser import ShopifyExportParseError, parse_shopify_orders_csv
+from app.services.discount_recommendation import build_discount_recommendation_rows
+from app.services.file_parser import ShopifyExportParseError
+from app.services.pipeline import process_shopify_csv
 from app.services.promotion_draft import promotion_drafts_from_discount_rows, promotion_drafts_to_jsonable
-from app.services.shopify_normalizer import normalize_shopify_data
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +75,10 @@ async def discount_recommendations(
     limit: int = Query(50, ge=1, le=200, description="Max drafts to return"),
 ) -> dict[str, Any]:
     """
-    Accept a Shopify orders CSV and return discount drafts + overview for UI rendering.
+    Accept a Shopify orders CSV, run the full dashboard pipeline (Streamlit parity), then return
+    discount drafts + overview + a full ``dashboard`` object for merchant UI (Overview / Orders /
+    Products / Campaigns / Discount).
     """
-    upload: Any | None = None
-
     try:
         if not file.filename or not file.filename.lower().endswith(".csv"):
             raise HTTPException(status_code=400, detail="file must be a .csv")
@@ -89,37 +89,29 @@ async def discount_recommendations(
 
         merchant_id: int | None = None
         mc = (merchant_code or "").strip()
-        try:
-            if mc:
-                merchant = MerchantRepository(db).get_or_create_by_code(mc)
-                merchant_id = int(merchant.id)
-            upload = UploadRepository(db).create(file_name=str(file.filename), merchant_id=merchant_id)
-        except Exception as exc:
-            logger.exception("discount: merchant/upload persistence failed (merchant_code=%r)", mc)
-            raise HTTPException(
-                status_code=500,
-                detail=f"database error while starting upload: {type(exc).__name__}: {exc}",
-            ) from exc
+        if mc:
+            merchant = MerchantRepository(db).get_or_create_by_code(mc)
+            merchant_id = int(merchant.id)
 
         try:
-            parse_result = parse_shopify_orders_csv(BytesIO(raw))
-            orders_data, items_data, _customers = normalize_shopify_data(parse_result.rows)
+            upload_id = process_shopify_csv(
+                db,
+                file_bytes=raw,
+                filename=str(file.filename),
+                merchant_id=merchant_id,
+            )
         except ShopifyExportParseError as exc:
             logger.info("discount: invalid shopify export: %s", exc)
             raise HTTPException(status_code=400, detail=f"invalid shopify export: {exc}") from exc
         except Exception as exc:
-            logger.exception("discount: parse/normalize failed upload_id=%s", getattr(upload, "id", None))
-            try:
-                UploadRepository(db).update_status(upload, "failed", error_message=str(exc))
-            except Exception:
-                logger.exception("discount: could not mark upload failed after parse error")
-            raise HTTPException(status_code=500, detail=f"failed to parse file: {exc}") from exc
+            logger.exception("discount: pipeline failed before discount layer")
+            raise HTTPException(status_code=500, detail=f"pipeline failed: {type(exc).__name__}: {exc}") from exc
 
         try:
-            rows = build_discount_recommendation_rows_from_normalized(orders_data, items_data)
+            rows = build_discount_recommendation_rows(db, int(upload_id))
             drafts = promotion_drafts_from_discount_rows(
                 rows,
-                upload_id=int(upload.id),
+                upload_id=int(upload_id),
                 duration_days=int(duration_days),
                 level=int(level),
                 limit=int(limit),
@@ -144,13 +136,16 @@ async def discount_recommendations(
                     continue
                 mix[ct] += 1
 
+            dashboard = get_dashboard_data(db, upload_id=int(upload_id))
+            dashboard_json = dashboard_data_to_jsonable(dashboard)
+
             return {
                 "meta": {
                     "engine_level": int(level),
                     "duration_days": int(duration_days),
                     "limit": int(limit),
                     "filename": str(file.filename),
-                    "upload_id": int(upload.id),
+                    "upload_id": int(upload_id),
                     "merchant_code": mc or None,
                 },
                 "overview": {
@@ -163,11 +158,12 @@ async def discount_recommendations(
                 "guardrails": guardrails,
                 "drafts": drafts_json,
                 "rows": rows[: min(len(rows), int(limit))],
+                "dashboard": dashboard_json,
             }
         except Exception as exc:
             logger.exception(
-                "discount: pipeline failed upload_id=%s level=%s limit=%s",
-                getattr(upload, "id", None),
+                "discount: discount/dashboard layer failed upload_id=%s level=%s limit=%s",
+                upload_id,
                 level,
                 limit,
             )

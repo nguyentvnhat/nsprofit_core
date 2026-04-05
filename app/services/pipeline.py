@@ -63,10 +63,13 @@ def process_shopify_csv(
     *,
     file_bytes: bytes,
     filename: str,
+    merchant_id: int | None = None,
 ) -> int:
     """
     Parse → raw rows → normalize → persist → metrics → signals → rules → narratives.
     Returns `upload_id`.
+
+    :param merchant_id: Optional portal merchant FK (NosaProfit core) for upload attribution.
     """
     upload_repo = UploadRepository(session)
     order_repo = OrderRepository(session)
@@ -74,7 +77,12 @@ def process_shopify_csv(
     signal_repo = SignalRepository(session)
     insight_repo = InsightRepository(session)
 
-    upload = upload_repo.create(file_name=filename, file_type="csv", source_type="shopify_csv")
+    upload = upload_repo.create(
+        file_name=filename,
+        file_type="csv",
+        source_type="shopify_csv",
+        merchant_id=merchant_id,
+    )
     upload_repo.update_status(upload, "processing")
 
     try:
