@@ -15,10 +15,30 @@ from typing import Any
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from app.models.order import Order
 from app.repositories import OrderRepository
 
 # Align with campaign_insight_enricher._TARGET_DISCOUNT_RATE — store-level promo ceiling reference
 _TARGET_DISCOUNT_SHARE = 0.15
+
+
+def _line_discount_amount(li: Any) -> float:
+    """Prefer line_discount_amount; fall back to total_discount_amount; then compare_at heuristic."""
+    raw = getattr(li, "line_discount_amount", None)
+    if raw is not None and float(raw or 0) != 0:
+        return float(raw)
+    tot = getattr(li, "total_discount_amount", None)
+    if tot is not None and float(tot or 0) != 0:
+        return float(tot)
+    try:
+        ca = float(getattr(li, "compare_at_price", None) or 0)
+        up = float(getattr(li, "unit_price", None) or 0)
+        qty = int(getattr(li, "quantity", None) or 0)
+        if ca > 0 and up > 0 and ca > up:
+            return (ca - up) * max(1, qty)
+    except Exception:
+        pass
+    return 0.0
 
 
 def _snap_promo_pct(raw: float) -> float:
@@ -56,17 +76,14 @@ def _after_extra_promo_retained(current_share: float, extra_pct: float) -> float
     return max(0.0, (1.0 - new_share) * 100.0)
 
 
-def build_discount_recommendation_rows(session: Session, upload_id: int) -> list[dict[str, Any]]:
+def build_discount_recommendation_rows_from_orders(orders: list[Order]) -> list[dict[str, Any]]:
     """
-    One row per SKU with suggested simple promo % and margin proxy bands.
+    SKU-level discount rows from persisted :class:`Order` rows (upload or store scoped).
 
-    Rows sorted by net line revenue descending.
+    Metrics → rules/heuristics are applied in this function; signals/insights live in
+    the metrics and dashboard pipelines. Rows remain the input to the recommendation
+    (promotion draft) layer.
     """
-    orders = OrderRepository(session).list_orders_for_upload(
-        upload_id,
-        include_items=True,
-        include_customer=False,
-    )
     # Per-SKU accumulator:
     # [net, discount, qty, orders_count, units_7d, units_30d, last_order_ordinal]
     acc: dict[tuple[str, str], list[float]] = {}
@@ -108,7 +125,7 @@ def build_discount_recommendation_rows(session: Session, upload_id: int) -> list
             pname = (li.product_name or "").strip() or "Unnamed product"
             key = (sku, pname)
             net = float(li.net_line_revenue or li.line_total or 0)
-            disc = float(li.line_discount_amount or 0)
+            disc = _line_discount_amount(li)
             if net < 0 and disc <= 0:
                 continue
             pre = net + disc
@@ -244,6 +261,20 @@ def build_discount_recommendation_rows(session: Session, upload_id: int) -> list
 
     rows.sort(key=lambda r: float(r["net_revenue"]), reverse=True)
     return rows
+
+
+def build_discount_recommendation_rows(session: Session, upload_id: int) -> list[dict[str, Any]]:
+    """
+    One row per SKU with suggested simple promo % and margin proxy bands.
+
+    Rows sorted by net line revenue descending.
+    """
+    orders = OrderRepository(session).list_orders_for_upload(
+        upload_id,
+        include_items=True,
+        include_customer=False,
+    )
+    return build_discount_recommendation_rows_from_orders(orders)
 
 
 def build_discount_recommendation_rows_from_normalized(

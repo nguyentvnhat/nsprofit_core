@@ -1,28 +1,32 @@
 """
 HTTP API for external clients (e.g. Laravel) to request discount recommendations.
 
-Reads an uploaded Shopify CSV, runs the full ingestion + analytics pipeline (same as Streamlit Home),
-returns discount drafts plus a serialized dashboard payload for the merchant portal.
+Supports:
+- **CSV upload** (legacy): multipart ``file`` → full ingestion + analytics (Streamlit parity).
+- **upload_id**: existing demo import (no file).
+- **store_id**: canonical store-scoped orders (optional date range).
+
+Analytical layers (metrics → rules/signals/insights in DB → recommendations) stay separated in
+service code; see :mod:`app.services.discount_recommendation_service`.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from pathlib import Path
+import pathlib
+from datetime import date
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, Path, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.repositories.merchant_repository import MerchantRepository
 from app.services.dashboard_service import dashboard_data_to_jsonable, get_dashboard_data
-from app.services.discount_guardrails import build_guardrails_from_upload_rows
-from app.services.discount_recommendation import build_discount_recommendation_rows
+from app.services.discount_recommendation_service import DiscountAnalysisError, run_discount_recommendation
 from app.services.file_parser import ShopifyExportParseError
 from app.services.pipeline import process_shopify_csv
-from app.services.promotion_draft import promotion_drafts_from_discount_rows, promotion_drafts_to_jsonable
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +42,7 @@ def _configure_discount_file_log() -> None:
     if not raw:
         _FILE_LOG_CONFIGURED = True
         return
-    path = Path(raw).expanduser()
+    path = pathlib.Path(raw).expanduser()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         fh = logging.FileHandler(path, encoding="utf-8")
@@ -89,115 +93,83 @@ def get_dashboard_json(
 @app.post("/api/discount")
 async def discount_recommendations(
     db: Session = Depends(get_db),
-    file: UploadFile = File(..., description="Shopify orders export CSV"),
-    merchant_code: str | None = Query(None, description="Portal merchant code (for linking uploads)"),
+    file: UploadFile | None = File(None, description="Shopify orders export CSV (optional if upload_id/store_id)"),
+    merchant_code: str | None = Query(None, description="Portal merchant code (for linking CSV uploads)"),
+    upload_id: int | None = Query(None, ge=1, description="Existing processed upload (demo / legacy)"),
+    store_id: int | None = Query(None, ge=1, description="Canonical store id (store-centric analysis)"),
+    start_date: date | None = Query(None, description="Filter orders by order_date (store mode)"),
+    end_date: date | None = Query(None, description="Filter orders by order_date (store mode)"),
     level: int = Query(3, ge=2, le=3, description="Discount engine level (2 or 3)"),
     duration_days: int = Query(3, ge=1, le=14, description="Draft promo duration in days"),
     limit: int = Query(50, ge=1, le=200, description="Max drafts to return"),
+    profit_config_json: str | None = Query(
+        None,
+        description="Optional JSON string: normalized profit_configuration (cogs, shipping_costs, …)",
+    ),
 ) -> dict[str, Any]:
     """
-    Accept a Shopify orders CSV, run the full dashboard pipeline (Streamlit parity), then return
-    discount drafts + overview + a full ``dashboard`` object for merchant UI (Overview / Orders /
-    Products / Campaigns / Discount).
+    Discount drafts + overview + ``dashboard`` object.
+
+    **Input precedence:** ``store_id`` > new CSV ``file`` > ``upload_id``.
+    If both ``store_id`` and ``upload_id`` are set, ``store_id`` wins.
+    Exactly one of ``store_id``, ``file`` (non-empty), or ``upload_id`` must be provided.
+
+    **Optional** ``profit_config_json``: same structure as portal_merchant sends; omitted means basic analysis.
     """
-    try:
-        if not file.filename or not file.filename.lower().endswith(".csv"):
-            raise HTTPException(status_code=400, detail="file must be a .csv")
-
+    file_bytes: bytes | None = None
+    filename: str | None = None
+    if file is not None and (file.filename or "").strip():
         raw = await file.read()
-        if not raw:
-            raise HTTPException(status_code=400, detail="empty file")
+        if raw:
+            file_bytes = raw
+            filename = str(file.filename)
 
-        merchant_id: int | None = None
-        mc = (merchant_code or "").strip()
-        if mc:
-            merchant = MerchantRepository(db).get_or_create_by_code(mc)
-            merchant_id = int(merchant.id)
+    if store_id is None and upload_id is None and not file_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide store_id, upload_id, or a non-empty CSV file (field 'file').",
+        )
 
+    profit_configuration: Any | None = None
+    raw_pc = (profit_config_json or "").strip()
+    if raw_pc:
         try:
-            upload_id = process_shopify_csv(
-                db,
-                file_bytes=raw,
-                filename=str(file.filename),
-                merchant_id=merchant_id,
-            )
-        except ShopifyExportParseError as exc:
-            logger.info("discount: invalid shopify export: %s", exc)
-            raise HTTPException(status_code=400, detail=f"invalid shopify export: {exc}") from exc
-        except Exception as exc:
-            logger.exception("discount: pipeline failed before discount layer")
-            raise HTTPException(status_code=500, detail=f"pipeline failed: {type(exc).__name__}: {exc}") from exc
-
-        try:
-            rows = build_discount_recommendation_rows(db, int(upload_id))
-            drafts = promotion_drafts_from_discount_rows(
-                rows,
-                upload_id=int(upload_id),
-                duration_days=int(duration_days),
-                level=int(level),
-                limit=int(limit),
-            )
-            drafts_json = promotion_drafts_to_jsonable(drafts)
-
-            guardrails = build_guardrails_from_upload_rows(
-                rows,
-                level=int(level),
-                duration_days=int(duration_days),
-            )
-
-            total = len(drafts)
-            high_conf = sum(1 for d in drafts if str(getattr(d, "confidence", "") or "").lower().strip() == "high")
-            heavy = sum(1 for d in drafts if float(getattr(d, "current_discount_pct", 0.0) or 0.0) >= 25.0)
-            net_rev_total = sum(float(getattr(d, "net_revenue", 0.0) or 0.0) for d in drafts)
-
-            mix: dict[str, int] = {"discount": 0, "bundle": 0, "flash_sale": 0}
-            for d in drafts:
-                ct = str(getattr(d, "campaign_type", "discount") or "discount")
-                if ct not in mix:
-                    continue
-                mix[ct] += 1
-
-            dashboard = get_dashboard_data(db, upload_id=int(upload_id))
-            dashboard_json = dashboard_data_to_jsonable(dashboard)
-
-            return {
-                "meta": {
-                    "engine_level": int(level),
-                    "duration_days": int(duration_days),
-                    "limit": int(limit),
-                    "filename": str(file.filename),
-                    "upload_id": int(upload_id),
-                    "merchant_code": mc or None,
-                },
-                "overview": {
-                    "products_with_recs": int(total),
-                    "high_confidence_items": int(high_conf),
-                    "already_ge_25pct_off": int(heavy),
-                    "net_revenue_covered": float(round(net_rev_total, 2)),
-                    "strategy_mix": mix,
-                },
-                "guardrails": guardrails,
-                "drafts": drafts_json,
-                "rows": rows[: min(len(rows), int(limit))],
-                "dashboard": dashboard_json,
-            }
-        except Exception as exc:
-            logger.exception(
-                "discount: discount/dashboard layer failed upload_id=%s level=%s limit=%s",
-                upload_id,
-                level,
-                limit,
-            )
+            profit_configuration = json.loads(raw_pc)
+        except json.JSONDecodeError as exc:
             raise HTTPException(
-                status_code=500,
-                detail=f"discount processing failed: {type(exc).__name__}: {exc}",
+                status_code=400,
+                detail=f"invalid profit_config_json: {exc}",
             ) from exc
+        if profit_configuration is not None and not isinstance(profit_configuration, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="profit_config_json must be a JSON object",
+            )
 
-    except HTTPException:
-        raise
+    try:
+        return run_discount_recommendation(
+            db,
+            file_bytes=file_bytes,
+            filename=filename,
+            merchant_code=merchant_code,
+            upload_id=upload_id,
+            store_id=store_id,
+            start_date=start_date,
+            end_date=end_date,
+            level=int(level),
+            duration_days=int(duration_days),
+            limit=int(limit),
+            profit_configuration=profit_configuration,
+        )
+    except DiscountAnalysisError as exc:
+        logger.info("discount: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ShopifyExportParseError as exc:
+        logger.info("discount: invalid shopify export: %s", exc)
+        raise HTTPException(status_code=400, detail=f"invalid shopify export: {exc}") from exc
     except Exception as exc:
-        logger.exception("discount: unexpected failure before/during handler")
+        logger.exception("discount: processing failed")
         raise HTTPException(
             status_code=500,
-            detail=f"internal error: {type(exc).__name__}: {exc}",
+            detail=f"discount processing failed: {type(exc).__name__}: {exc}",
         ) from exc
