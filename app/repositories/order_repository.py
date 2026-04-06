@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
+from datetime import date, datetime, time
+
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -93,6 +95,37 @@ class OrderRepository:
         # MySQL doesn't support `NULLS LAST` syntax.
         # We emulate "nulls last" by ordering by `order_date IS NULL` first:
         #   - False (0) comes before True (1) => nulls last.
+        stmt = stmt.order_by(Order.order_date.is_(None), desc(Order.order_date), Order.id)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+
+        return list(self._session.scalars(stmt).unique().all())
+
+    def list_orders_for_store(
+        self,
+        store_id: int,
+        *,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        limit: int | None = 5000,
+        include_items: bool = True,
+        include_customer: bool = True,
+    ) -> list[Order]:
+        """Load canonical orders for a store (optional order_date range, inclusive dates)."""
+        stmt = select(Order).where(Order.store_id == int(store_id))
+
+        if start_date is not None:
+            start_dt = datetime.combine(start_date, datetime.min.time())
+            stmt = stmt.where(Order.order_date.is_not(None)).where(Order.order_date >= start_dt)
+        if end_date is not None:
+            end_dt = datetime.combine(end_date, time(23, 59, 59))
+            stmt = stmt.where(Order.order_date.is_not(None)).where(Order.order_date <= end_dt)
+
+        if include_items:
+            stmt = stmt.options(joinedload(Order.items))
+        if include_customer:
+            stmt = stmt.options(joinedload(Order.customer))
+
         stmt = stmt.order_by(Order.order_date.is_(None), desc(Order.order_date), Order.id)
         if limit is not None:
             stmt = stmt.limit(limit)

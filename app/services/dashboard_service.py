@@ -182,6 +182,105 @@ def get_dashboard_data(session: Session, upload_id: int | None = None) -> Dashbo
     )
 
 
+def build_dashboard_data_from_canonical_orders(
+    session: Session,
+    orders: list[Any],
+    *,
+    virtual_upload_id: int = 0,
+    file_name: str = "store_orders",
+    status: str = "ready",
+) -> DashboardData:
+    """
+    Dashboard-shaped payload built only from in-memory orders (e.g. store-scoped query).
+
+    Persists **metrics/signals/insights** are upload-keyed in DB; this path fills KPIs and
+    tables from canonical orders so the JSON shape stays compatible with
+    :func:`dashboard_data_to_jsonable` without requiring a single ``upload_id`` pipeline run.
+    """
+    _ = session  # reserved for future ACL / store validation
+    uid = int(virtual_upload_id)
+    orders_df = _orders_table_from_models(orders)
+    metrics_map: dict[str, float] = {}
+
+    revenue_over_time, orders_over_time = _build_time_series(orders_df)
+    products_table, revenue_by_sku, top_3_sku_share, top_3_line_revenue, products_revenue_total = (
+        _build_products_from_order_models(orders)
+    )
+    customer_summary, top_customers = _build_customers(orders_df)
+    signals_by_severity: dict[str, list[dict[str, Any]]] = {"high": [], "medium": [], "low": []}
+    money_summary = _build_money_summary(metrics_map, orders_df)
+    loss_drivers = _build_loss_drivers(money_summary)
+    insights: list[dict[str, Any]] = []
+    if uid > 0:
+        insights = _build_insights(
+            session,
+            uid,
+            money_summary=money_summary,
+            signals_by_severity=signals_by_severity,
+        )
+    quick_wins = _build_quick_wins(insights, signals_by_severity, money_summary)
+
+    campaign_results: list[dict[str, Any]] = []
+    campaign_summary_table: list[dict[str, Any]] = []
+    top_c_risks: list[dict[str, Any]] = []
+    top_c_insights: list[dict[str, Any]] = []
+    enriched_campaign_insights: list[dict[str, Any]] = []
+    campaign_opportunity_summary: dict[str, Any] = {}
+    try:
+        ods, its, custs = _campaign_dicts_from_orders(orders)
+        if ods:
+            campaign_results = analyze_campaigns(ods, its, custs)
+            campaign_summary_table = campaign_summary_table_rows(campaign_results)
+            top_c_risks = top_campaign_risks(campaign_results)
+            enriched_campaign_insights = enrich_campaign_insights(campaign_results)
+            campaign_opportunity_summary = build_campaign_opportunity_summary(enriched_campaign_insights)
+            top_c_insights = enriched_campaign_insights[:10]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Campaign analysis skipped for canonical orders: %s", exc)
+
+    fallback_kpis = _kpis_from_orders(orders_df)
+    kpis = {
+        "total_revenue": metrics_map.get("gross_revenue", fallback_kpis["total_revenue"]),
+        "net_revenue": metrics_map.get("net_revenue", fallback_kpis["net_revenue"]),
+        "aov": metrics_map.get("aov", fallback_kpis["aov"]),
+        "total_orders": metrics_map.get("total_orders", fallback_kpis["total_orders"]),
+        "discount_rate": float(money_summary.get("discount_as_pct_revenue", 0.0) or 0.0),
+        "refund_rate": float(money_summary.get("refund_as_pct_revenue", 0.0) or 0.0),
+        "estimated_leakage_pct": float(money_summary.get("estimated_revenue_leakage_pct", 0.0) or 0.0),
+        "estimated_post_discount_and_shipping_revenue": float(
+            money_summary.get("estimated_post_discount_and_shipping_revenue", 0.0) or 0.0
+        ),
+    }
+
+    return DashboardData(
+        upload_id=uid,
+        file_name=str(file_name),
+        status=str(status),
+        kpis=kpis,
+        revenue_over_time=revenue_over_time,
+        orders_over_time=orders_over_time,
+        orders_table=orders_df,
+        products_table=products_table,
+        revenue_by_sku=revenue_by_sku,
+        top_3_sku_share=top_3_sku_share,
+        top_3_line_revenue=top_3_line_revenue,
+        products_revenue_total=products_revenue_total,
+        customer_summary=customer_summary,
+        top_customers=top_customers,
+        signals_by_severity=signals_by_severity,
+        insights=insights,
+        money_summary=money_summary,
+        quick_wins=quick_wins,
+        loss_drivers=loss_drivers,
+        campaign_results=campaign_results,
+        campaign_summary_table=campaign_summary_table,
+        top_campaign_risks=top_c_risks,
+        top_campaign_insights=top_c_insights,
+        enriched_campaign_insights=enriched_campaign_insights,
+        campaign_opportunity_summary=campaign_opportunity_summary,
+    )
+
+
 def dashboard_data_to_jsonable(d: DashboardData) -> dict[str, Any]:
     """
     Serialize :class:`DashboardData` for JSON API responses (Laravel / merchant portal).
@@ -392,6 +491,129 @@ def _build_orders_table(session: Session, upload_id: int) -> pd.DataFrame:
     if not df.empty:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
     return df
+
+
+def _orders_table_from_models(orders: list[Any]) -> pd.DataFrame:
+    """Same shape as :func:`_build_orders_table` but from already-loaded ``Order`` models."""
+    rows: list[dict[str, Any]] = []
+    for o in orders:
+        rows.append(
+            {
+                "order_name": o.order_name,
+                "order_date": o.order_date,
+                "country": o.shipping_country,
+                "status": o.financial_status,
+                "fulfillment_status": o.fulfillment_status,
+                "customer_email": o.customer.email if o.customer else None,
+                "total_revenue": float(o.total_price or 0),
+                "net_revenue": float(o.net_revenue or 0),
+                "discount": float(o.discount_amount or 0),
+                "quantity": int(o.total_quantity or 0),
+            }
+        )
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
+    return df
+
+
+def _build_products_from_order_models(
+    orders: list[Any],
+) -> tuple[pd.DataFrame, pd.DataFrame, float, float, float]:
+    """Same as :func:`_build_products` using preloaded orders + line items."""
+    rows: list[dict[str, Any]] = []
+    for o in orders:
+        for li in o.items or []:
+            rows.append(
+                {
+                    "sku": li.sku or "UNKNOWN",
+                    "product_name": li.product_name,
+                    "quantity": int(li.quantity or 0),
+                    "revenue": float(li.net_line_revenue or li.line_total or 0),
+                }
+            )
+
+    if not rows:
+        empty = pd.DataFrame(columns=["sku", "product_name", "quantity", "revenue"])
+        return empty, pd.DataFrame(columns=["revenue"]), 0.0, 0.0, 0.0
+
+    df = pd.DataFrame(rows)
+    grouped = (
+        df.groupby(["sku", "product_name"], dropna=False, as_index=False)
+        .agg(quantity=("quantity", "sum"), revenue=("revenue", "sum"))
+        .sort_values("revenue", ascending=False)
+    )
+    revenue_by_sku = grouped.groupby("sku", as_index=True)["revenue"].sum().to_frame("revenue")
+    total_revenue = float(grouped["revenue"].sum())
+    top3_revenue = float(grouped.head(3)["revenue"].sum())
+    top3_share = (top3_revenue / total_revenue) if total_revenue > 0 else 0.0
+    return grouped, revenue_by_sku, top3_share, top3_revenue, total_revenue
+
+
+def _campaign_dicts_from_orders(
+    orders: list[Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Same tuple shape as :func:`_load_upload_dataset_for_campaigns` without an upload id."""
+    order_dicts: list[dict[str, Any]] = []
+    item_dicts: list[dict[str, Any]] = []
+    customers_map: dict[str, dict[str, Any]] = {}
+
+    for o in orders:
+        camp = parse_campaign_notes(o.notes)
+        od: dict[str, Any] = {
+            "order_name": o.order_name,
+            "external_order_id": o.external_order_id,
+            "order_date": o.order_date,
+            "currency": o.currency,
+            "financial_status": o.financial_status,
+            "fulfillment_status": o.fulfillment_status,
+            "source_name": o.source_name,
+            "shipping_country": o.shipping_country,
+            "subtotal_price": o.subtotal_price,
+            "discount_amount": o.discount_amount,
+            "shipping_amount": o.shipping_amount,
+            "tax_amount": o.tax_amount,
+            "refunded_amount": o.refunded_amount,
+            "total_price": o.total_price,
+            "net_revenue": o.net_revenue,
+            "total_quantity": o.total_quantity,
+            "is_cancelled": o.is_cancelled,
+            "is_repeat_customer": o.is_repeat_customer,
+            "customer_email": o.customer.email if o.customer else None,
+        }
+        od.update(camp)
+        order_dicts.append(od)
+
+        if o.customer and o.customer.email:
+            ce = str(o.customer.email).strip()
+            if ce and ce not in customers_map:
+                fn = o.customer.first_name or ""
+                ln = o.customer.last_name or ""
+                disp = " ".join(p for p in (fn, ln) if p).strip() or None
+                customers_map[ce] = {
+                    "email": ce,
+                    "name": disp,
+                    "shopify_customer_id": o.customer.external_id,
+                }
+
+        for it in o.items or []:
+            item_dicts.append(
+                {
+                    "order_name": o.order_name,
+                    "sku": it.sku,
+                    "product_name": it.product_name,
+                    "variant_name": it.variant_name,
+                    "vendor": it.vendor,
+                    "quantity": it.quantity,
+                    "unit_price": it.unit_price,
+                    "line_discount_amount": it.line_discount_amount,
+                    "line_total": it.line_total,
+                    "net_line_revenue": it.net_line_revenue,
+                    "requires_shipping": it.requires_shipping,
+                }
+            )
+
+    return order_dicts, item_dicts, list(customers_map.values())
 
 
 def _kpis_from_orders(orders_df: pd.DataFrame) -> dict[str, float]:

@@ -46,6 +46,7 @@ class PromotionDraft:
     # Level-3 fields: promotion mix (still deterministic; executable later).
     campaign_type: str = "discount"  # discount/bundle/flash_sale
     campaign_template: dict[str, Any] | None = None
+    store_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -169,6 +170,7 @@ def promotion_drafts_from_discount_rows(
     rows: list[dict[str, Any]],
     *,
     upload_id: int,
+    store_id: int | None = None,
     duration_days: int = 3,
     level: int = 1,
     limit: int = 50,
@@ -211,6 +213,7 @@ def promotion_drafts_from_discount_rows(
                 rationale_codes=tuple(list(base_codes) + list(extra_codes)),
                 campaign_type=str(campaign_type),
                 campaign_template=campaign_template,
+                store_id=store_id,
             )
         )
     return out
