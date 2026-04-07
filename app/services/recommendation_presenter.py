@@ -254,6 +254,23 @@ def present_promotion_draft(draft: dict, duration_days: int = 3) -> dict:
     total_recovery = _estimated_total_margin_recovery(draft, duration_days)
     avg_orders_test = _avg_orders_during_test(draft, duration_days)
 
+    revenue_mid = _safe_float(draft.get("revenue_recovery_mid"))
+    compact_label = _compact_recommendation_label(
+        current=current,
+        suggested=suggested,
+        duration_days=duration_days,
+        per_order=per_order,
+        total_recovery=total_recovery,
+    )
+    primary_numbers = _primary_numbers(
+        current=current,
+        suggested=suggested,
+        duration_days=duration_days,
+        per_order=per_order,
+        total_recovery=total_recovery,
+        revenue_mid=revenue_mid,
+    )
+
     return {
         **draft,
         # additive fields, non-breaking
@@ -270,4 +287,50 @@ def present_promotion_draft(draft: dict, duration_days: int = 3) -> dict:
         "demand_impact_label": demand_impact_label(delta),
         "why_bullets": build_why(draft, duration_days),
         "next_step_bullets": build_next_steps(duration_days, draft),
+        "compact_label": compact_label,
+        "primary_numbers": primary_numbers,
+        "money_view": {
+            "per_order_estimate": _fmt_money(per_order) if per_order > 0 else None,
+            "total_profit_estimate": _fmt_money(total_recovery) if total_recovery > 0 else None,
+            "revenue_midpoint_estimate": _fmt_money(revenue_mid) if revenue_mid > 0 else None,
+        },
+    }
+
+def _compact_recommendation_label(current: float, suggested: float, duration_days: int, per_order: float, total_recovery: float) -> str | None:
+    parts: list[str] = []
+
+    if current > 0 and suggested > 0:
+        parts.append(f"{_fmt_pct(current)}% → {_fmt_pct(suggested)}%")
+    elif suggested > 0:
+        parts.append(f"{_fmt_pct(suggested)}%")
+
+    if duration_days > 0:
+        parts.append(f"{duration_days}d")
+
+    if per_order > 0:
+        parts.append(f"+${_fmt_money(per_order)}/order")
+
+    if total_recovery > 0:
+        parts.append(f"~${_fmt_money(total_recovery)} total")
+
+    return " · ".join(parts) if parts else None
+
+
+def _primary_numbers(current: float, suggested: float, duration_days: int, per_order: float, total_recovery: float, revenue_mid: float) -> dict:
+    return {
+        "discount_change": (
+            f"{_fmt_pct(current)}% → {_fmt_pct(suggested)}%"
+            if current > 0 and suggested > 0
+            else None
+        ),
+        "duration": f"{duration_days} days" if duration_days > 0 else None,
+        "per_order_profit_impact": (
+            f"+${_fmt_money(per_order)} per order" if per_order > 0 else None
+        ),
+        "total_profit_impact": (
+            f"~${_fmt_money(total_recovery)} total" if total_recovery > 0 else None
+        ),
+        "revenue_midpoint": (
+            f"${_fmt_money(revenue_mid)} revenue midpoint" if revenue_mid > 0 else None
+        ),
     }
