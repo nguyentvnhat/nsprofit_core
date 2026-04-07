@@ -3,191 +3,347 @@ rules:
     enabled: true
     category: pricing
     severity: medium
-    description: "A large share of active SKUs have no sales in the last 7 days (30d active), suggesting slow movers. Recommend targeted discount tests instead of site-wide promos."
+
+    description: "A meaningful portion of active SKUs has not sold recently, indicating slow movers. Recommend a targeted discount test sized by margin safety, signal strength, and current profit-model completeness rather than a fixed promo."
+
     condition:
       all:
         - type: signal
           signal_code: SKU_SLOW_MOVERS_HIGH
-    title_template: "Many SKUs are slow-moving — use targeted discount tests"
-    summary_template: "Slow-mover share is elevated, which may indicate inventory pressure or weak demand on part of the catalog."
-    implication_template: "Broad discounts can compress retained value. Targeted promos on slow movers can clear stock while protecting core SKUs."
-    # --- Decision-ready + UI-integrated upgrade (additive; engine can ignore unknown keys) ---
+
+    principles:
+      - "Keep recommendations targeted to slow-moving SKUs rather than defaulting to store-wide discounting."
+      - "Size recommendation strength by both demand signal and profit-model completeness."
+      - "Do not overclaim profit safety when core cost inputs are missing."
+      - "Prefer narrower scope and shorter duration when cost visibility is incomplete."
+      - "Use clearer recovery plays for aged slow movers and safer plays for margin-constrained stores."
+
+    constraints:
+      preserve_backward_compatibility: true
+      downgrade_confidence_if_cost_model_incomplete: true
+      block_margin_safe_language_if_product_cost_missing: true
+      prefer_narrow_targeting_if_fees_missing: true
+      prefer_short_duration_if_profit_model_incomplete: true
+      prefer_value_add_over_deep_discount_if_margin_visibility_weak: true
+      cap_discount_if_product_cost_missing_pct: 10
+      cap_discount_if_transaction_fees_missing_pct: 12
+      force_duration_max_days_if_revenue_only: 5
+
+    profit_model:
+      completeness: "{{profit_model_completeness}}"
+      basis_label: "{{profit_basis_label}}"
+      confidence: "{{profit_basis_confidence}}"
+      included_components:
+        - "{{included_component_1}}"
+        - "{{included_component_2}}"
+        - "{{included_component_3}}"
+        - "{{included_component_4}}"
+      missing_components:
+        - "{{missing_component_1}}"
+        - "{{missing_component_2}}"
+        - "{{missing_component_3}}"
+        - "{{missing_component_4}}"
+      flags:
+        include_product_cost: "{{include_product_cost}}"
+        include_shipping_cost: "{{include_shipping_cost}}"
+        include_transaction_fees: "{{include_transaction_fees}}"
+        include_custom_costs: "{{include_custom_costs}}"
+      modes:
+        product_cost_mode: "{{product_cost_mode}}"
+        shipping_cost_mode: "{{shipping_cost_mode}}"
+        transaction_fee_mode: "{{transaction_fee_mode}}"
+        custom_cost_mode: "{{custom_cost_mode}}"
+
+    title_template: "Run a targeted recovery play on slow-moving SKUs"
+    summary_template: "A noticeable share of your active catalog is not converting, creating inventory drag and lost demand."
+    implication_template: "Use a targeted promotion sized to margin safety, signal strength, and current cost visibility instead of applying a broad store-wide discount."
+
     quantified_signals:
-      slow_mover_ratio: "{{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_share * 100}}%"
-      affected_sku_count: "{{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_count_30d}}"
-      inventory_value_stuck: "${{SKU_SLOW_MOVERS_HIGH.context.slow_mover_net_revenue_30d_usd}}"
-      avg_days_since_last_sale: "{{SKU_SLOW_MOVERS_HIGH.context.avg_days_since_last_sale_active_30d}} days"
+      slow_mover_ratio_pct: "{{slow_mover_ratio_pct}}"
+      affected_sku_count: "{{slow_mover_sku_count_30d}}"
+      active_sku_count_30d: "{{active_sku_count_30d}}"
+      inventory_value_stuck_usd: "{{slow_mover_net_revenue_30d_usd}}"
+      revenue_exposed_usd: "{{slow_mover_net_revenue_30d_usd}}"
+      avg_days_since_last_sale: "{{avg_days_since_last_sale_active_30d}}"
+      priority_score: "{{priority_score_0_100}}"
+      signal_strength: "{{signal_strength_label}}"
+      margin_safety_band: "{{margin_safety_band}}"
+      slow_mover_age_bucket: "{{slow_mover_age_bucket}}"
+      historical_discounted_order_ratio_pct: "{{historical_discounted_order_ratio_pct}}"
+      historical_blended_discount_rate_pct: "{{historical_blended_discount_rate_pct}}"
+      compare_at_price_coverage_pct: "{{compare_at_price_coverage_pct}}"
+
+      #v2
+      current_discount_pct: "{{current_discount_pct}}"
+      recommended_discount_pct: "{{recommended_discount_pct}}"
+      discount_delta_pct: "{{discount_delta_pct}}"
+      estimated_margin_recovery_per_order: "{{estimated_margin_recovery_per_order}}"
+      estimated_total_margin_recovery: "{{estimated_total_margin_recovery}}"
+      avg_orders_during_test: "{{avg_orders_during_test}}"
 
     insight:
-      title: "Slow movers: {{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_share * 100}}% of active SKUs ({{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_count_30d}} SKUs)"
-      summary: "About ${{SKU_SLOW_MOVERS_HIGH.context.slow_mover_net_revenue_30d_usd}} (30d net revenue) is tied to slow-moving SKUs; average days since last sale is {{SKU_SLOW_MOVERS_HIGH.context.avg_days_since_last_sale_active_30d}} days."
-      implication: "Use targeted promos to unlock stuck demand without eroding margin across the whole catalog."
+      title: "{{slow_mover_ratio_pct}}% of active SKUs are slow-moving ({{slow_mover_sku_count_30d}} of {{active_sku_count_30d}} SKUs)"
+      summary: "About ${{slow_mover_net_revenue_30d_usd}} in 30-day net revenue is tied to slow-moving SKUs, with an average of {{avg_days_since_last_sale_active_30d}} days since last sale."
+      implication: "This is a targeted catalog efficiency issue. A narrow promo on selected SKUs is safer than discounting the full store."
+      context: "Current profit basis: {{profit_basis_label}}. Historical store discount baseline: {{historical_discounted_order_ratio_pct}}% of orders at {{historical_blended_discount_rate_pct}}% blended depth."
 
     decision:
+      action_headline: "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}% for {{recommended_duration_days}} days"
       recommended_action: targeted_discount_test
-      discount_range: "10–15%"
-      campaign_type: flash_sale
-      target_segment: new_customers
+      discount_range: "{{recommended_discount_range}}"
+      campaign_type: "{{recommended_campaign_type}}"
+      target_segment: "{{recommended_target_segment}}"
+      duration_days: "{{recommended_duration_days}}"
+      execution_urgency: "{{execution_urgency}}"
       priority_score: "{{priority_score_0_100}}"
-      execution_urgency: high
+      primary_goal: "Recover demand from slow-moving inventory without weakening full-store price integrity"
+
+      decision_mode: "{{decision_mode}}"
+      recommended_action_headline: "{{recommended_action_headline}}"
+      max_safe_discount_pct: "{{max_safe_discount_pct}}"
+      confidence_adjustment_reason: "{{confidence_adjustment_reason}}"
+
+      # NEW
+      current_discount_pct: "{{current_discount_pct}}"
+      recommended_discount_pct: "{{recommended_discount_pct}}"
+      discount_delta_pct: "{{discount_delta_pct}}"
 
     expected_impact:
-      sales_uplift_estimate: "+10–25%"
-      profit_impact: neutral
-      inventory_reduction_estimate: "8–18%"
-      estimated_revenue_recovery: "${{revenue_recovery_low}}–${{revenue_recovery_high}}"
+      sales_uplift:
+        point_estimate_pct: "{{recommended_sales_uplift_pct}}"
+        range_pct: "{{recommended_sales_uplift_range_pct}}"
+
+      revenue_recovery:
+        point_estimate_usd: "{{revenue_recovery_mid}}"
+        range_usd: "${{revenue_recovery_low}}–${{revenue_recovery_high}}"
+        timeframe: "{{recommended_duration_days}} days"
+
+      inventory_reduction:
+        point_estimate_pct: "{{recommended_inventory_reduction_pct}}"
+        range_pct: "{{recommended_inventory_reduction_range_pct}}"
+
+      profit_impact:
+        label: "{{recommended_profit_impact_label}}"
+        summary: "{{recommended_profit_impact_summary}}"
+
+      basis_note: "{{profit_basis_note}}"
+
+      # NEW
+      margin_recovery_per_order_usd: "{{estimated_margin_recovery_per_order}}"
+      total_margin_recovery_usd: "{{estimated_total_margin_recovery}}"
 
     risk:
-      level: medium
-      reason: "If promos run too broadly/too long, customers may learn to wait for discounts and profit per order falls."
+      level: "{{risk_level}}"
+      reason: "{{risk_reason}}"
+
+    confidence:
+      level: "{{confidence_level}}"
+      reason: "{{confidence_reason}}"
+
+    decision_summary:
+      headline: "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}% for {{recommended_duration_days}} days"
+
+      expected:
+        - "{{recommended_sales_uplift_pct}} sales uplift on targeted SKUs (range: {{recommended_sales_uplift_range_pct}})"
+        - "~${{estimated_margin_recovery_per_order}} additional margin per order"
+        - "~${{estimated_total_margin_recovery}} total margin recovery over {{recommended_duration_days}} days"
+
+      why:
+        - "Current discount is {{current_discount_pct}}% while recommended discount is {{recommended_discount_pct}}% ({{discount_delta_pct}} pts lower)"
+        - "That change can recover about ${{estimated_margin_recovery_per_order}} per order"
+        - "At expected test volume (~{{avg_orders_during_test}} orders), that is about ${{estimated_total_margin_recovery}} over {{recommended_duration_days}} days"
+        - "{{slow_mover_ratio_pct}}% of active SKUs are slow-moving ({{slow_mover_sku_count_30d}} of {{active_sku_count_30d}} SKUs)"
+        - "Current profit basis is {{profit_basis_label}}"
+
+      risk:
+        - "{{risk_level_cap}} risk: {{risk_reason}}"
+
+      next_steps:
+        - "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}%"
+        - "Run the test for {{recommended_duration_days}} days on slow-moving SKUs only"
+        - "Target {{recommended_target_segment_label}} first"
+        - "Track profit per order, conversion rate, and sell-through by targeted SKU"
+        - "Stop, tighten, or extend the promo based on margin and demand response"
+        - "{{next_step_1}}"
+        - "{{next_step_2}}"
+
+      constraints_applied:
+        - "{{constraint_applied_1}}"
+        - "{{constraint_applied_2}}"
+        - "{{constraint_applied_3}}"
 
     ui_payload:
-      highlight_metric: "{{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_share * 100}}% slow-moving SKUs"
+      recommendation_action: "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}% for {{recommended_duration_days}} days"
+
+      expected_impact:
+        headline: "+${{estimated_margin_recovery_per_order}} per order estimate"
+        sales_uplift: "{{recommended_sales_uplift_pct}} expected uplift on targeted SKUs"
+        inventory_reduction: "{{recommended_inventory_reduction_pct}} expected reduction in slow-moving inventory"
+        risk_level: "{{risk_level_cap}}"
+        confidence_level: "{{confidence_level_cap}}"
+        total_margin_recovery: "~${{estimated_total_margin_recovery}} over {{recommended_duration_days}} days"
+
+      why_this_works:
+        - "Current discount is {{current_discount_pct}}% vs recommended {{recommended_discount_pct}}% ({{discount_delta_pct}} pts lower)"
+        - "This unlocks about ${{estimated_margin_recovery_per_order}} additional margin per order"
+        - "At expected test volume, that is about ${{estimated_total_margin_recovery}} over {{recommended_duration_days}} days"
+        - "The test is limited to slow-moving SKUs, so top sellers keep their current pricing"
+        - "Profit basis: {{profit_basis_label}}"
+
+      what_to_do_next:
+        - "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}%"
+        - "Run the test for {{recommended_duration_days}} days"
+        - "Aim for about +${{estimated_margin_recovery_per_order}} margin per order"
+        - "Monitor conversion, profit per order, and sell-through"
+        - "Revert or narrow the promo if conversion drops too far"
+
       supporting_metrics:
-        - "{{SKU_SLOW_MOVERS_HIGH.context.slow_mover_sku_count_30d}} SKUs affected"
-        - "${{SKU_SLOW_MOVERS_HIGH.context.slow_mover_net_revenue_30d_usd}} 30d net revenue tied to slow movers"
-        - "{{SKU_SLOW_MOVERS_HIGH.context.avg_days_since_last_sale_active_30d}} avg days since last sale"
+        - "{{slow_mover_ratio_pct}}% slow-moving SKUs"
+        - "{{slow_mover_sku_count_30d}} of {{active_sku_count_30d}} active SKUs affected"
+        - "${{slow_mover_net_revenue_30d_usd}} 30-day net revenue tied to slow movers"
+        - "{{avg_days_since_last_sale_active_30d}} average days since last sale"
+        - "Current discount: {{current_discount_pct}}%"
+        - "Recommended discount: {{recommended_discount_pct}}%"
+        - "Margin recovery: +${{estimated_margin_recovery_per_order}}/order"
+        - "Estimated total recovery: ~${{estimated_total_margin_recovery}}"
+        - "Priority score: {{priority_score_0_100}}/100"
+
       call_to_action: "Create Discount Campaign"
-      recommended_products: "top slow-moving SKUs"
+      recommended_products: "Top slow-moving SKUs"
+
       preview_discount_logic:
-        margin_before: "{{sku.current_margin_proxy_band}}"
-        margin_after: "{{sku.expected_margin_proxy_band_after_promo}}"
+        discount_range: "{{recommended_discount_range}}"
+        current_discount_pct: "{{current_discount_pct}}"
+        recommended_discount_pct: "{{recommended_discount_pct}}"
+        discount_delta_pct: "{{discount_delta_pct}}"
+        campaign_type: "{{recommended_campaign_type}}"
+        target_segment: "{{recommended_target_segment}}"
+        duration_days: "{{recommended_duration_days}}"
+        risk_level: "{{risk_level}}"
+        confidence_level: "{{confidence_level}}"
+        decision_mode: "{{decision_mode}}"
+        max_safe_discount_pct: "{{max_safe_discount_pct}}"
+        profit_model_completeness: "{{profit_model_completeness}}"
+
+      profit_basis:
+        label: "{{profit_basis_label}}"
+        confidence: "{{profit_basis_confidence}}"
+        included_components:
+          - "{{included_component_1}}"
+          - "{{included_component_2}}"
+          - "{{included_component_3}}"
+          - "{{included_component_4}}"
+        missing_components:
+          - "{{missing_component_1}}"
+          - "{{missing_component_2}}"
+          - "{{missing_component_3}}"
+          - "{{missing_component_4}}"
+
+      disclaimers:
+        - "{{disclaimer_1}}"
+        - "{{disclaimer_2}}"
 
     action_prompt:
       required_inputs:
-        - product_name
-        - product_code
-        - industry
-        - current_margin_percent
-        - expected_margin_after_discount
-        - discount_percent
-        - campaign_type
-        - inventory_level
-        - sales_history
-        - target_segment
+        - slow_mover_ratio_pct
+        - slow_mover_sku_count_30d
+        - active_sku_count_30d
+        - slow_mover_net_revenue_30d_usd
+        - avg_days_since_last_sale_active_30d
+        - priority_score_0_100
+        - margin_safety_band
+        - signal_strength_label
+        - recommended_discount_range
+        - recommended_duration_days
+        - recommended_sales_uplift_pct
+        - recommended_sales_uplift_range_pct
+        - recommended_inventory_reduction_pct
+        - recommended_inventory_reduction_range_pct
+        - revenue_recovery_low
+        - revenue_recovery_mid
+        - revenue_recovery_high
+        - recommended_profit_impact_label
+        - recommended_profit_impact_summary
+        - risk_level
+        - risk_reason
         - confidence_level
-        - slow_mover_ratio
-        - affected_sku_count
-        - inventory_value_stuck
-        - avg_days_since_last_sale
-        - discount_range
-        - priority_score
+        - confidence_reason
+        - recommended_target_segment
+        - recommended_target_segment_label
+        - recommended_campaign_type
         - execution_urgency
-      system_instruction: |
-        You are an AI Growth Strategist specialized in e-commerce promotions.
+        - slow_mover_age_bucket
+        - historical_discounted_order_ratio_pct
+        - historical_blended_discount_rate_pct
+        - compare_at_price_coverage_pct
+        - profit_model_completeness
+        - profit_basis_label
+        - profit_basis_confidence
+        - include_product_cost
+        - include_shipping_cost
+        - include_transaction_fees
+        - include_custom_costs
+        - product_cost_mode
+        - shipping_cost_mode
+        - transaction_fee_mode
+        - custom_cost_mode
+        - decision_mode
+        - recommended_action_headline
+        - max_safe_discount_pct
+        - confidence_adjustment_reason
+        - profit_basis_note
+        - included_component_1
+        - included_component_2
+        - included_component_3
+        - included_component_4
+        - missing_component_1
+        - missing_component_2
+        - missing_component_3
+        - missing_component_4
+        - disclaimer_1
+        - disclaimer_2
+        - constraint_applied_1
+        - constraint_applied_2
+        - constraint_applied_3
+        - next_step_1
+        - next_step_2
 
-        Your task is NOT just to suggest a campaign, but to EXPLAIN and JUSTIFY it in a way that a business owner can quickly approve without overthinking.
+        # NEW
+        - current_discount_pct
+        - recommended_discount_pct
+        - discount_delta_pct
+        - estimated_margin_recovery_per_order
+        - estimated_total_margin_recovery
+        - avg_orders_during_test
 
-        You will receive ONE JSON input that includes:
-        - product fields (product_name, product_code, industry)
-        - promo fields (discount_percent, campaign_type, target_segment)
-        - economics fields (current_margin_percent, expected_margin_after_discount)
-        - demand/inventory fields (inventory_level, sales_history)
-        - confidence fields (confidence_level)
-        - decision context fields (slow_mover_ratio, affected_sku_count, inventory_value_stuck, avg_days_since_last_sale, discount_range, priority_score, execution_urgency)
-
-        Use the decision context to justify WHY this promo is the right play now (signal → money → decision). Tie every reason directly to the input numbers.
-
-        ## Output (STRICT JSON FORMAT)
-        {
-        "why_this_works": [
-        "Short, business-focused reason 1",
-        "Short, business-focused reason 2",
-        "Short, business-focused reason 3"
-        ],
-        "expected_outcome": {
-        "sales_uplift_estimate": "range in % (e.g. +10–25%)",
-        "profit_impact": "positive / neutral / slightly_negative",
-        "primary_goal": "clear goal (e.g. inventory clearance, customer acquisition, revenue boost)"
-        },
-        "risk_assessment": {
-        "risk_level": "low / medium / high",
-        "risk_reason": "1 sentence explaining main risk"
-        },
-        "confidence_explanation": "Explain WHY confidence is high/medium/low in 1 sentence"
-        }
-
-        ## Writing Rules (VERY IMPORTANT)
-        1. Be concise, practical, and business-oriented (no AI fluff).
-        2. Each "why" must map to a real business driver: margin, inventory, demand, customer segment.
-        3. Avoid generic phrases like "this could help increase sales".
-        4. Always tie logic to INPUT data (numbers, ranges, $ impact, counts).
-        5. Make it easy for a non-technical business owner to approve in <5 seconds.
-
-        Do not include any text outside JSON.
     action_template: |
-      Update `/Discount`
-      You are an AI Growth Strategist specialized in e-commerce promotions.
+      Recommendation:
+      Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}% for {{recommended_duration_days}} days.
 
-      Your task is NOT just to suggest a campaign, but to EXPLAIN and JUSTIFY it in a way that a business owner can quickly approve without overthinking.
+      Why this works:
+      - Current discount is {{current_discount_pct}}% and recommended discount is {{recommended_discount_pct}}% ({{discount_delta_pct}} pts lower)
+      - This can recover about ${{estimated_margin_recovery_per_order}} per order
+      - At expected test volume, that is about ${{estimated_total_margin_recovery}} over {{recommended_duration_days}} days
+      - {{slow_mover_ratio_pct}}% of active SKUs are slow-moving ({{slow_mover_sku_count_30d}} of {{active_sku_count_30d}} SKUs)
+      - Current profit basis: {{profit_basis_label}}
 
-      ---
+      Expected outcome:
+      - {{recommended_sales_uplift_pct}} sales uplift on targeted SKUs
+      - +${{estimated_margin_recovery_per_order}} per order
+      - ~${{estimated_total_margin_recovery}} total over {{recommended_duration_days}} days
 
-      ## Input (provided as JSON)
+      Risk:
+      - {{risk_level_cap}}: {{risk_reason}}
 
-      * product_name
-      * product_code
-      * industry
-      * current_margin_percent
-      * expected_margin_after_discount
-      * discount_percent
-      * campaign_type (discount / bundle / flash_sale)
-      * inventory_level (low / medium / high)
-      * sales_history (low / medium / high)
-      * target_segment (new_customers / returning_customers / all)
-      * confidence_level (low / medium / high)
+      Confidence:
+      - {{confidence_level_cap}}: {{confidence_reason}}
 
-      ---
+      Constraints applied:
+      - {{constraint_applied_1}}
+      - {{constraint_applied_2}}
 
-      ## Output (STRICT JSON FORMAT)
-
-      {
-      "why_this_works": [
-      "Short, business-focused reason 1",
-      "Short, business-focused reason 2",
-      "Short, business-focused reason 3"
-      ],
-      "expected_outcome": {
-      "sales_uplift_estimate": "range in % (e.g. +10–25%)",
-      "profit_impact": "positive / neutral / slightly_negative",
-      "primary_goal": "clear goal (e.g. inventory clearance, customer acquisition, revenue boost)"
-      },
-      "risk_assessment": {
-      "risk_level": "low / medium / high",
-      "risk_reason": "1 sentence explaining main risk"
-      },
-      "confidence_explanation": "Explain WHY confidence is high/medium/low in 1 sentence"
-      }
-
-      ---
-
-      ## Writing Rules (VERY IMPORTANT)
-
-      1. Be concise, practical, and business-oriented (no AI fluff).
-      2. Each "why" must map to a real business driver:
-         * margin
-         * inventory
-         * demand
-         * customer segment
-      3. Avoid generic phrases like "this could help increase sales".
-      4. Always tie logic to INPUT data.
-      5. Make it easy for a non-technical business owner to approve in <5 seconds.
-
-      ---
-
-      ## Example Style (DO NOT COPY, JUST FOLLOW TONE)
-
-      "why_this_works":
-      * "High margin (75%) allows safe discounting without hurting profit"
-      * "Low sales history indicates need for demand stimulation"
-      * "Targeting new customers supports acquisition growth"
-
-      ---
-
-      ## Goal
-
-      Your output should make the user think:
-      👉 “This makes sense — I can approve this immediately.”
-
-      Do not include any text outside JSON.
-
+      Next steps:
+      - Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}%
+      - Run for {{recommended_duration_days}} days
+      - Target {{recommended_target_segment_label}}
+      - Monitor revenue recovered, sell-through, and profit per order

@@ -32,7 +32,7 @@ from app.services.pipeline import process_shopify_csv
 from app.services.profit_configuration_normalizer import normalize_profit_configuration, profit_configuration_to_jsonable
 from app.services.profit_metrics import apply_profit_configuration_to_rows
 from app.services.promotion_draft import promotion_drafts_from_discount_rows, promotion_drafts_to_jsonable
-
+from app.services.recommendation_presenter import present_promotion_draft
 
 class DiscountAnalysisError(ValueError):
     """Predictable validation / empty-dataset failures for HTTP mapping."""
@@ -284,7 +284,7 @@ def run_discount_recommendation(
             "Provide one of: store_id, upload_id, or a CSV file (multipart field 'file')."
         )
 
-    drafts_json = promotion_drafts_to_jsonable(drafts)
+    drafts_json = [present_promotion_draft(d) for d in drafts]
     guardrails = build_guardrails_from_upload_rows(rows, level=int(level), duration_days=int(duration_days))
 
     total = len(drafts)
@@ -356,6 +356,8 @@ def run_discount_recommendation(
             "limit": int(limit),
         },
     )
+
+    drafts_json = [present_promotion_draft(d) for d in drafts_json]
 
     return {
         "meta": {

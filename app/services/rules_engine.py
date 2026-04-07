@@ -205,6 +205,8 @@ def evaluate_rules(
             condition = rule.get("condition") or {}
             if not _eval_condition_group(condition, metric_map, signal_codes):
                 continue
+            control_ctx = _extract_rule_control_context(rule)
+            profit_ctx = _extract_profit_model_context(rule)
             payloads.append(
                 RuleInsightPayload(
                     rule_code=str(rule["rule_code"]),
@@ -222,7 +224,10 @@ def evaluate_rules(
                         "signal_map": signal_map,
                         "rule_source": str(path),
                         "rule": rule,
-                    },
+                        "profit_model": profit_ctx,
+                        "principles": control_ctx["principles"],
+                        "constraints": control_ctx["constraints"],
+                    }
                 )
             )
     return payloads
@@ -274,3 +279,24 @@ def sync_rule_definitions(session: Session, rules_dir: Path | None = None) -> No
                 row.implication_template = rule.get("implication_template")
                 row.action_template = rule.get("action_template")
     session.flush()
+
+def _extract_profit_model_context(rule: dict[str, Any]) -> dict[str, Any]:
+    pm = rule.get("profit_model") or {}
+    if not isinstance(pm, dict):
+        return {}
+    return {
+        "completeness": pm.get("completeness", "unknown"),
+        "basis_label": pm.get("basis_label", "Directional profit view"),
+        "confidence": pm.get("confidence", "low"),
+        "included_components": pm.get("included_components", []),
+        "missing_components": pm.get("missing_components", []),
+        "flags": pm.get("flags", {}),
+        "modes": pm.get("modes", {}),
+    }
+
+
+def _extract_rule_control_context(rule: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "principles": list(rule.get("principles", []) or []),
+        "constraints": dict(rule.get("constraints", {}) or {}),
+    }

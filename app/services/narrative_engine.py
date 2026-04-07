@@ -40,9 +40,7 @@ def _render_mustache(template: str, ctx: dict[str, Any]) -> str:
         val = _resolve_path(ctx, key)
         if val is None:
             return m.group(0)
-        # Keep formatting simple/deterministic (no locale).
         if isinstance(val, float):
-            # Avoid long floats in UI copy
             return str(round(val, 4)).rstrip("0").rstrip(".")
         return str(val)
 
@@ -69,35 +67,165 @@ def _render_any(node: Any, ctx: dict[str, Any]) -> Any:
     return node
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
 def _compute_decision_vars(rule_code: str, ctx: dict[str, Any]) -> dict[str, Any]:
     """
     Compute derived numeric vars used by decision-ready templates.
     Keep deterministic and safe (missing context => zeros).
     """
     out: dict[str, Any] = {}
+
     if rule_code == "slow_mover_discount_playbook":
         sig = ctx.get("SKU_SLOW_MOVERS_HIGH") if isinstance(ctx.get("SKU_SLOW_MOVERS_HIGH"), dict) else {}
         sc = sig.get("context") if isinstance(sig, dict) else {}
         sc = sc if isinstance(sc, dict) else {}
-        slow_share = float(sc.get("slow_mover_sku_share") or 0.0)
-        avg_days = float(sc.get("avg_days_since_last_sale_active_30d") or 0.0)
-        active = float(sc.get("active_sku_count_30d") or 0.0)
+
+        slow_share = _safe_float(sc.get("slow_mover_sku_share"))
+        avg_days = _safe_float(sc.get("avg_days_since_last_sale_active_30d"))
+        active = _safe_float(sc.get("active_sku_count_30d"))
         slow_cnt = int(round(active * slow_share)) if active > 0 and slow_share > 0 else 0
+        stuck = _safe_float(sc.get("slow_mover_net_revenue_30d_usd"))
 
-        # If the signal context doesn't have money, compute a conservative proxy (0).
-        stuck = float(sc.get("slow_mover_net_revenue_30d_usd") or 0.0)
-
-        # Priority score: weighted by ratio + staleness + money (caps at 100).
         score = (slow_share * 100.0) * 1.2 + avg_days * 1.0 + (stuck / 1000.0) * 1.5
         out["priority_score_0_100"] = int(max(0, min(100, round(score))))
 
-        # Revenue recovery proxy bounds.
         out["revenue_recovery_low"] = round(stuck * 0.10, 0)
         out["revenue_recovery_high"] = round(stuck * 0.25, 0)
+        out["slow_mover_sku_count_30d"] = _safe_int(sc.get("slow_mover_sku_count_30d"), slow_cnt)
 
-        # Convenience: expose computed count if missing upstream.
-        out["slow_mover_sku_count_30d"] = int(sc.get("slow_mover_sku_count_30d") or slow_cnt)
+        # Helpful fallbacks from signal context
+        out.setdefault("slow_mover_ratio_pct", round(slow_share * 100.0, 1) if slow_share > 0 else 0.0)
+        out.setdefault("active_sku_count_30d", _safe_int(sc.get("active_sku_count_30d")))
+        out.setdefault("avg_days_since_last_sale_active_30d", avg_days)
+        out.setdefault("slow_mover_net_revenue_30d_usd", stuck)
+
     return out
+
+
+def _compute_discount_numbers(ctx: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+
+    current = _safe_float(ctx.get("current_discount_pct"))
+
+    if current <= 0:
+        sig = ctx.get("SKU_SLOW_MOVERS_HIGH") if isinstance(ctx.get("SKU_SLOW_MOVERS_HIGH"), dict) else {}
+        sc = sig.get("context") if isinstance(sig, dict) else {}
+        sc = sc if isinstance(sc, dict) else {}
+        current = _safe_float(sc.get("current_discount_pct"))
+
+    if current <= 0:
+        current = _safe_float(ctx.get("avg_discount_pct"))
+
+    recommended = _safe_float(ctx.get("recommended_discount_pct"))
+
+    if recommended <= 0:
+        if current >= 20:
+            recommended = 5.0
+        elif current >= 15:
+            recommended = 5.0
+        elif current >= 10:
+            recommended = 7.0
+        elif current > 0:
+            recommended = max(3.0, current - 2.0)
+        else:
+            recommended = 5.0
+
+    delta = max(0.0, current - recommended)
+
+    out["current_discount_pct"] = round(current, 1)
+    out["recommended_discount_pct"] = round(recommended, 1)
+    out["discount_delta_pct"] = round(delta, 1)
+
+    # Optional text fallback for old templates
+    if recommended > 0:
+        if recommended.is_integer():
+            out["recommended_discount_range"] = f"{int(recommended)}%"
+        else:
+            out["recommended_discount_range"] = f"{recommended}%"
+
+    return out
+
+
+def _compute_discount_impact(ctx: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+
+    current = _safe_float(ctx.get("current_discount_pct"))
+    recommended = _safe_float(ctx.get("recommended_discount_pct"))
+    delta = max(0.0, current - recommended)
+
+    avg_order_value = _safe_float(ctx.get("avg_order_value"))
+    if avg_order_value <= 0:
+        avg_order_value = _safe_float(ctx.get("aov"))
+
+    estimated_margin_recovery_per_order = delta / 100.0 * avg_order_value
+
+    duration_days = _safe_int(ctx.get("recommended_duration_days"))
+    avg_orders_per_day = _safe_float(ctx.get("avg_orders_per_day"))
+
+    if avg_orders_per_day <= 0:
+        avg_orders_per_day = _safe_float(ctx.get("orders_per_day"))
+
+    avg_orders_during_test = avg_orders_per_day * duration_days if duration_days > 0 else 0.0
+    estimated_total_margin_recovery = estimated_margin_recovery_per_order * avg_orders_during_test
+
+    out["discount_delta_pct"] = round(delta, 1)
+    out["estimated_margin_recovery_per_order"] = round(estimated_margin_recovery_per_order, 2)
+    out["avg_orders_during_test"] = round(avg_orders_during_test, 1)
+    out["estimated_total_margin_recovery"] = round(estimated_total_margin_recovery, 2)
+
+    return out
+
+
+def _apply_soft_constraints(ctx: dict[str, Any]) -> dict[str, Any]:
+    """
+    Soft guardrails based on profit model completeness.
+    Non-breaking: only adjusts existing values.
+    """
+    completeness = str(ctx.get("profit_model_completeness") or "").lower()
+    include_product_cost = bool(ctx.get("include_product_cost"))
+
+    ctx.setdefault("max_safe_discount_pct", 15)
+    ctx.setdefault("decision_mode", "light_discount_test")
+    ctx.setdefault("disclaimer_1", "")
+    ctx.setdefault("disclaimer_2", "")
+    ctx.setdefault("confidence_adjustment_reason", "")
+
+    if not include_product_cost:
+        ctx["max_safe_discount_pct"] = min(_safe_float(ctx.get("max_safe_discount_pct"), 15), 10)
+        ctx["confidence_adjustment_reason"] = "Product cost not included"
+        ctx["disclaimer_1"] = "Product cost is not included, so profit impact is directional"
+
+    if completeness == "revenue_only":
+        ctx["decision_mode"] = "light_discount_test"
+        ctx["recommended_duration_days"] = min(_safe_int(ctx.get("recommended_duration_days"), 7), 5)
+        ctx["disclaimer_2"] = "Costs are not fully configured, keep test narrow"
+
+    # Clamp recommended discount if needed
+    recommended = _safe_float(ctx.get("recommended_discount_pct"))
+    max_safe = _safe_float(ctx.get("max_safe_discount_pct"), 15)
+    if recommended > max_safe and max_safe > 0:
+        ctx["recommended_discount_pct"] = round(max_safe, 1)
+        current = _safe_float(ctx.get("current_discount_pct"))
+        ctx["discount_delta_pct"] = round(max(0.0, current - max_safe), 1)
+
+    return ctx
 
 
 @dataclass(frozen=True)
@@ -207,7 +335,7 @@ def _to_float(value: Any) -> float:
 
 
 def _rules_by_priority(rule_codes: list[str], metrics: dict[str, Any]) -> list[str]:
-    _ = metrics  # reserved for future metric-aware impact scoring
+    _ = metrics
     deduped = list(dict.fromkeys(rule_codes))
     return sorted(
         deduped,
@@ -252,16 +380,33 @@ def narrate(payload: RuleInsightPayload) -> NarratedInsight:
         **{k: v for k, v in m.items() if isinstance(v, (int, float))},
         "signal_count": len(payload.context.get("signals", [])),
     }
+
+    profit_ctx = payload.context.get("profit_model") or {}
+    if isinstance(profit_ctx, dict):
+        ctx.update(
+            {
+                "profit_model_completeness": profit_ctx.get("completeness", "unknown"),
+                "profit_basis_label": profit_ctx.get("basis_label", "Directional profit view"),
+                "profit_basis_confidence": profit_ctx.get("confidence", "low"),
+                "include_product_cost": profit_ctx.get("flags", {}).get("include_product_cost", False),
+                "include_shipping_cost": profit_ctx.get("flags", {}).get("include_shipping_cost", False),
+                "include_transaction_fees": profit_ctx.get("flags", {}).get("include_transaction_fees", False),
+                "include_custom_costs": profit_ctx.get("flags", {}).get("include_custom_costs", False),
+            }
+        )
+
     sig_map = payload.context.get("signal_map") or {}
     if isinstance(sig_map, dict):
-        # Expose signals by code for templates like {{SKU_SLOW_MOVERS_HIGH.context...}}
         for k, v in sig_map.items():
             if isinstance(k, str) and isinstance(v, dict):
                 ctx[k] = v
         ctx["signal"] = sig_map
 
-    # Derived vars for decision-ready templates
     ctx.update(_compute_decision_vars(payload.rule_code, ctx))
+    ctx.update(_compute_discount_numbers(ctx))
+    ctx.update(_compute_discount_impact(ctx))
+    ctx = _apply_soft_constraints(ctx)
+    ctx.update(_compute_discount_impact(ctx))
 
     templates = payload.templates or {}
     title_t = templates.get("title_template") or f"Rule triggered: {payload.rule_code}"
@@ -272,7 +417,6 @@ def narrate(payload: RuleInsightPayload) -> NarratedInsight:
     rule = payload.context.get("rule") or {}
     decision_object = None
     if isinstance(rule, dict):
-        # Render the new decision-ready blocks if present (additive; safe if absent).
         decision_object = _render_any(
             {
                 "quantified_signals": rule.get("quantified_signals"),
@@ -280,11 +424,15 @@ def narrate(payload: RuleInsightPayload) -> NarratedInsight:
                 "decision": rule.get("decision"),
                 "expected_impact": rule.get("expected_impact"),
                 "risk": rule.get("risk"),
+                "confidence": rule.get("confidence"),
+                "decision_summary": rule.get("decision_summary"),
                 "ui_payload": rule.get("ui_payload"),
                 "action_prompt": rule.get("action_prompt"),
+                "action_template": rule.get("action_template"),
             },
             ctx,
         )
+
     return NarratedInsight(
         rule_code=payload.rule_code,
         category=payload.category,
@@ -299,6 +447,7 @@ def narrate(payload: RuleInsightPayload) -> NarratedInsight:
             "context": payload.context,
             "templates": templates,
             "decision_object": decision_object,
+            "render_context": ctx,
         },
     )
 
