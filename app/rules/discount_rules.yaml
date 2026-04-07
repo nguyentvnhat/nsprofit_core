@@ -73,7 +73,6 @@ rules:
       historical_blended_discount_rate_pct: "{{historical_blended_discount_rate_pct}}"
       compare_at_price_coverage_pct: "{{compare_at_price_coverage_pct}}"
 
-      #v2
       current_discount_pct: "{{current_discount_pct}}"
       recommended_discount_pct: "{{recommended_discount_pct}}"
       discount_delta_pct: "{{discount_delta_pct}}"
@@ -89,7 +88,8 @@ rules:
 
     decision:
       action_headline: "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}% for {{recommended_duration_days}} days"
-      recommended_action: targeted_discount_test
+      action_compact: "{{current_discount_pct}}% → {{recommended_discount_pct}}% · {{recommended_duration_days}}d · +${{estimated_margin_recovery_per_order}}/order · ~${{estimated_total_margin_recovery}} total"
+      recommended_action: "targeted_discount_test"
       discount_range: "{{recommended_discount_range}}"
       campaign_type: "{{recommended_campaign_type}}"
       target_segment: "{{recommended_target_segment}}"
@@ -97,16 +97,10 @@ rules:
       execution_urgency: "{{execution_urgency}}"
       priority_score: "{{priority_score_0_100}}"
       primary_goal: "Recover demand from slow-moving inventory without weakening full-store price integrity"
-
       decision_mode: "{{decision_mode}}"
       recommended_action_headline: "{{recommended_action_headline}}"
       max_safe_discount_pct: "{{max_safe_discount_pct}}"
       confidence_adjustment_reason: "{{confidence_adjustment_reason}}"
-
-      # NEW
-      current_discount_pct: "{{current_discount_pct}}"
-      recommended_discount_pct: "{{recommended_discount_pct}}"
-      discount_delta_pct: "{{discount_delta_pct}}"
 
     expected_impact:
       sales_uplift:
@@ -127,8 +121,6 @@ rules:
         summary: "{{recommended_profit_impact_summary}}"
 
       basis_note: "{{profit_basis_note}}"
-
-      # NEW
       margin_recovery_per_order_usd: "{{estimated_margin_recovery_per_order}}"
       total_margin_recovery_usd: "{{estimated_total_margin_recovery}}"
 
@@ -141,23 +133,22 @@ rules:
       reason: "{{confidence_reason}}"
 
     decision_summary:
-      headline: "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}% for {{recommended_duration_days}} days"
-
+      headline: "{{current_discount_pct}}% → {{recommended_discount_pct}}% for {{recommended_duration_days}} days"
+      impact_headline: "+${{estimated_margin_recovery_per_order}} per order · ~${{estimated_total_margin_recovery}} total"
+      money_headline: "~${{revenue_recovery_mid}} revenue midpoint · ~${{estimated_total_margin_recovery}} margin recovery"
       expected:
-        - "{{recommended_sales_uplift_pct}} sales uplift on targeted SKUs (range: {{recommended_sales_uplift_range_pct}})"
-        - "~${{estimated_margin_recovery_per_order}} additional margin per order"
-        - "~${{estimated_total_margin_recovery}} total margin recovery over {{recommended_duration_days}} days"
-
+        - "Estimated margin recovery: +${{estimated_margin_recovery_per_order}} per order"
+        - "Estimated total margin recovery: ~${{estimated_total_margin_recovery}} over {{recommended_duration_days}} days"
+        - "Revenue recovery midpoint: ${{revenue_recovery_mid}} (range: ${{revenue_recovery_low}}–${{revenue_recovery_high}})"
+        - "Expected sales uplift on targeted SKUs: {{recommended_sales_uplift_pct}} (range: {{recommended_sales_uplift_range_pct}})"
       why:
         - "Current discount is {{current_discount_pct}}% while recommended discount is {{recommended_discount_pct}}% ({{discount_delta_pct}} pts lower)"
         - "That change can recover about ${{estimated_margin_recovery_per_order}} per order"
         - "At expected test volume (~{{avg_orders_during_test}} orders), that is about ${{estimated_total_margin_recovery}} over {{recommended_duration_days}} days"
         - "{{slow_mover_ratio_pct}}% of active SKUs are slow-moving ({{slow_mover_sku_count_30d}} of {{active_sku_count_30d}} SKUs)"
         - "Current profit basis is {{profit_basis_label}}"
-
       risk:
-        - "{{risk_level_cap}} risk: {{risk_reason}}"
-
+        - "{{risk_level}} risk: {{risk_reason}}"
       next_steps:
         - "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}%"
         - "Run the test for {{recommended_duration_days}} days on slow-moving SKUs only"
@@ -167,21 +158,30 @@ rules:
         - "{{next_step_1}}"
         - "{{next_step_2}}"
 
-      constraints_applied:
-        - "{{constraint_applied_1}}"
-        - "{{constraint_applied_2}}"
-        - "{{constraint_applied_3}}"
+    constraints_applied:
+      - "{{constraint_applied_1}}"
+      - "{{constraint_applied_2}}"
+      - "{{constraint_applied_3}}"
 
     ui_payload:
       recommendation_action: "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}% for {{recommended_duration_days}} days"
+      recommendation_compact: "{{current_discount_pct}}% → {{recommended_discount_pct}}% · +${{estimated_margin_recovery_per_order}}/order · ~${{estimated_total_margin_recovery}} total"
+
+      primary_numbers:
+        action_percent_change: "{{current_discount_pct}}% → {{recommended_discount_pct}}%"
+        duration: "{{recommended_duration_days}} days"
+        per_order_profit_impact: "+${{estimated_margin_recovery_per_order}} per order"
+        total_profit_impact: "~${{estimated_total_margin_recovery}} total"
+        revenue_midpoint: "${{revenue_recovery_mid}} revenue midpoint"
 
       expected_impact:
-        headline: "+${{estimated_margin_recovery_per_order}} per order estimate"
+        headline: "{{current_discount_pct}}% → {{recommended_discount_pct}}% · +${{estimated_margin_recovery_per_order}}/order"
+        total_margin_recovery: "~${{estimated_total_margin_recovery}} over {{recommended_duration_days}} days"
+        revenue_recovery: "${{revenue_recovery_mid}} midpoint revenue recovery"
         sales_uplift: "{{recommended_sales_uplift_pct}} expected uplift on targeted SKUs"
         inventory_reduction: "{{recommended_inventory_reduction_pct}} expected reduction in slow-moving inventory"
-        risk_level: "{{risk_level_cap}}"
-        confidence_level: "{{confidence_level_cap}}"
-        total_margin_recovery: "~${{estimated_total_margin_recovery}} over {{recommended_duration_days}} days"
+        risk_level: "{{risk_level}}"
+        confidence_level: "{{confidence_level}}"
 
       why_this_works:
         - "Current discount is {{current_discount_pct}}% vs recommended {{recommended_discount_pct}}% ({{discount_delta_pct}} pts lower)"
@@ -193,6 +193,7 @@ rules:
       what_to_do_next:
         - "Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}%"
         - "Run the test for {{recommended_duration_days}} days"
+        - "Target {{recommended_target_segment_label}} first"
         - "Aim for about +${{estimated_margin_recovery_per_order}} margin per order"
         - "Monitor conversion, profit per order, and sell-through"
         - "Revert or narrow the promo if conversion drops too far"
@@ -206,42 +207,43 @@ rules:
         - "Recommended discount: {{recommended_discount_pct}}%"
         - "Margin recovery: +${{estimated_margin_recovery_per_order}}/order"
         - "Estimated total recovery: ~${{estimated_total_margin_recovery}}"
+        - "Revenue midpoint: ${{revenue_recovery_mid}}"
         - "Priority score: {{priority_score_0_100}}/100"
 
       call_to_action: "Create Discount Campaign"
       recommended_products: "Top slow-moving SKUs"
 
-      preview_discount_logic:
-        discount_range: "{{recommended_discount_range}}"
-        current_discount_pct: "{{current_discount_pct}}"
-        recommended_discount_pct: "{{recommended_discount_pct}}"
-        discount_delta_pct: "{{discount_delta_pct}}"
-        campaign_type: "{{recommended_campaign_type}}"
-        target_segment: "{{recommended_target_segment}}"
-        duration_days: "{{recommended_duration_days}}"
-        risk_level: "{{risk_level}}"
-        confidence_level: "{{confidence_level}}"
-        decision_mode: "{{decision_mode}}"
-        max_safe_discount_pct: "{{max_safe_discount_pct}}"
-        profit_model_completeness: "{{profit_model_completeness}}"
+    preview_discount_logic:
+      discount_range: "{{recommended_discount_range}}"
+      current_discount_pct: "{{current_discount_pct}}"
+      recommended_discount_pct: "{{recommended_discount_pct}}"
+      discount_delta_pct: "{{discount_delta_pct}}"
+      campaign_type: "{{recommended_campaign_type}}"
+      target_segment: "{{recommended_target_segment}}"
+      duration_days: "{{recommended_duration_days}}"
+      risk_level: "{{risk_level}}"
+      confidence_level: "{{confidence_level}}"
+      decision_mode: "{{decision_mode}}"
+      max_safe_discount_pct: "{{max_safe_discount_pct}}"
+      profit_model_completeness: "{{profit_model_completeness}}"
 
-      profit_basis:
-        label: "{{profit_basis_label}}"
-        confidence: "{{profit_basis_confidence}}"
-        included_components:
-          - "{{included_component_1}}"
-          - "{{included_component_2}}"
-          - "{{included_component_3}}"
-          - "{{included_component_4}}"
-        missing_components:
-          - "{{missing_component_1}}"
-          - "{{missing_component_2}}"
-          - "{{missing_component_3}}"
-          - "{{missing_component_4}}"
+    profit_basis:
+      label: "{{profit_basis_label}}"
+      confidence: "{{profit_basis_confidence}}"
+      included_components:
+        - "{{included_component_1}}"
+        - "{{included_component_2}}"
+        - "{{included_component_3}}"
+        - "{{included_component_4}}"
+      missing_components:
+        - "{{missing_component_1}}"
+        - "{{missing_component_2}}"
+        - "{{missing_component_3}}"
+        - "{{missing_component_4}}"
 
-      disclaimers:
-        - "{{disclaimer_1}}"
-        - "{{disclaimer_2}}"
+    disclaimers:
+      - "{{disclaimer_1}}"
+      - "{{disclaimer_2}}"
 
     action_prompt:
       required_inputs:
@@ -307,8 +309,6 @@ rules:
         - constraint_applied_3
         - next_step_1
         - next_step_2
-
-        # NEW
         - current_discount_pct
         - recommended_discount_pct
         - discount_delta_pct
@@ -319,6 +319,12 @@ rules:
     action_template: |
       Recommendation:
       Reduce discount from {{current_discount_pct}}% to {{recommended_discount_pct}}% for {{recommended_duration_days}} days.
+
+      Quick view:
+      - Discount change: {{current_discount_pct}}% → {{recommended_discount_pct}}%
+      - Estimated margin impact: +${{estimated_margin_recovery_per_order}} per order
+      - Estimated total margin recovery: ~${{estimated_total_margin_recovery}}
+      - Revenue recovery midpoint: ${{revenue_recovery_mid}}
 
       Why this works:
       - Current discount is {{current_discount_pct}}% and recommended discount is {{recommended_discount_pct}}% ({{discount_delta_pct}} pts lower)
@@ -331,12 +337,13 @@ rules:
       - {{recommended_sales_uplift_pct}} sales uplift on targeted SKUs
       - +${{estimated_margin_recovery_per_order}} per order
       - ~${{estimated_total_margin_recovery}} total over {{recommended_duration_days}} days
+      - Revenue midpoint: ${{revenue_recovery_mid}} (range ${{revenue_recovery_low}}–${{revenue_recovery_high}})
 
       Risk:
-      - {{risk_level_cap}}: {{risk_reason}}
+      - {{risk_level}}: {{risk_reason}}
 
       Confidence:
-      - {{confidence_level_cap}}: {{confidence_reason}}
+      - {{confidence_level}}: {{confidence_reason}}
 
       Constraints applied:
       - {{constraint_applied_1}}

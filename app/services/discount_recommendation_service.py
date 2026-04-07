@@ -283,8 +283,9 @@ def run_discount_recommendation(
         raise DiscountAnalysisError(
             "Provide one of: store_id, upload_id, or a CSV file (multipart field 'file')."
         )
-
-    drafts_json = [present_promotion_draft(d) for d in drafts]
+    #old
+    #drafts_json = [present_promotion_draft(d) for d in drafts]
+    drafts_json = [_enrich_presented_draft(present_promotion_draft(d)) for d in drafts]
     guardrails = build_guardrails_from_upload_rows(rows, level=int(level), duration_days=int(duration_days))
 
     total = len(drafts)
@@ -357,7 +358,8 @@ def run_discount_recommendation(
         },
     )
 
-    drafts_json = [present_promotion_draft(d) for d in drafts_json]
+    #old per
+    # drafts_json = [present_promotion_draft(d) for d in drafts_json]
 
     return {
         "meta": {
@@ -404,3 +406,140 @@ def run_discount_recommendation(
             "profit_configuration": profit_configuration_to_jsonable(normalized_profit),
         },
     }
+
+def _safe_float(v: Any) -> float | None:
+    try:
+        if v is None or v == "":
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_pct(v: Any) -> str | None:
+    n = _safe_float(v)
+    if n is None:
+        return None
+    if abs(n - round(n)) < 1e-9:
+        return f"{int(round(n))}%"
+    return f"{n:.1f}%"
+
+
+def _fmt_money(v: Any) -> str | None:
+    n = _safe_float(v)
+    if n is None:
+        return None
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    return f"{sign}${n:,.2f}"
+
+
+def _first_non_empty(*vals: Any) -> Any:
+    for v in vals:
+        if v is None:
+            continue
+        if isinstance(v, str) and not v.strip():
+            continue
+        return v
+    return None
+
+
+def _build_compact_recommendation_fields(draft: dict[str, Any]) -> dict[str, Any]:
+    current_pct = _first_non_empty(
+        draft.get("current_discount_pct"),
+        (draft.get("preview_discount_logic") or {}).get("current_discount_pct"),
+    )
+    recommended_pct = _first_non_empty(
+        draft.get("recommended_discount_pct"),
+        (draft.get("preview_discount_logic") or {}).get("recommended_discount_pct"),
+    )
+    duration_days = _first_non_empty(
+        draft.get("duration_days"),
+        draft.get("recommended_duration_days"),
+        (draft.get("preview_discount_logic") or {}).get("duration_days"),
+    )
+    per_order = _first_non_empty(
+        draft.get("estimated_margin_recovery_per_order"),
+        draft.get("margin_recovery_per_order_usd"),
+        (draft.get("expected_impact") or {}).get("margin_recovery_per_order_usd"),
+        ((draft.get("ui_payload") or {}).get("primary_numbers") or {}).get("per_order_profit_impact"),
+    )
+    total_profit = _first_non_empty(
+        draft.get("estimated_total_margin_recovery"),
+        draft.get("total_margin_recovery_usd"),
+        (draft.get("expected_impact") or {}).get("total_margin_recovery_usd"),
+        ((draft.get("ui_payload") or {}).get("expected_impact") or {}).get("total_margin_recovery"),
+    )
+    revenue_mid = _first_non_empty(
+        draft.get("revenue_recovery_mid"),
+        ((draft.get("expected_impact") or {}).get("revenue_recovery") or {}).get("point_estimate_usd"),
+    )
+
+    current_pct_s = current_pct if isinstance(current_pct, str) and "%" in current_pct else _fmt_pct(current_pct)
+    recommended_pct_s = recommended_pct if isinstance(recommended_pct, str) and "%" in recommended_pct else _fmt_pct(recommended_pct)
+    duration_s = f"{int(float(duration_days))}d" if _safe_float(duration_days) is not None else None
+    per_order_s = per_order if isinstance(per_order, str) and "$" in per_order else _fmt_money(per_order)
+    total_profit_s = total_profit if isinstance(total_profit, str) and "$" in total_profit else _fmt_money(total_profit)
+    revenue_mid_s = revenue_mid if isinstance(revenue_mid, str) and "$" in revenue_mid else _fmt_money(revenue_mid)
+
+    compact_parts: list[str] = []
+    if current_pct_s and recommended_pct_s:
+        compact_parts.append(f"{current_pct_s} → {recommended_pct_s}")
+    if duration_s:
+        compact_parts.append(duration_s)
+    if per_order_s:
+        compact_parts.append(f"+{per_order_s.lstrip('-')}/order" if not per_order_s.startswith("-") else f"{per_order_s}/order")
+    if total_profit_s:
+        compact_parts.append(f"~{total_profit_s}")
+
+    return {
+        "compact_label": " · ".join(compact_parts) if compact_parts else None,
+        "primary_numbers": {
+            "discount_change": f"{current_pct_s} → {recommended_pct_s}" if current_pct_s and recommended_pct_s else None,
+            "duration": f"{int(float(duration_days))} days" if _safe_float(duration_days) is not None else None,
+            "per_order_profit_impact": (
+                f"+{per_order_s.lstrip('-')} per order" if per_order_s and not per_order_s.startswith("-")
+                else (f"{per_order_s} per order" if per_order_s else None)
+            ),
+            "total_profit_impact": f"~{total_profit_s} total" if total_profit_s else None,
+            "revenue_midpoint": f"{revenue_mid_s} revenue midpoint" if revenue_mid_s else None,
+        },
+        "money_view": {
+            "per_order_estimate": per_order_s,
+            "total_profit_estimate": total_profit_s,
+            "revenue_midpoint_estimate": revenue_mid_s,
+        },
+    }
+
+
+def _enrich_presented_draft(draft: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(draft, dict):
+        return draft
+    extra = _build_compact_recommendation_fields(draft)
+
+    ui_payload = draft.get("ui_payload")
+    if not isinstance(ui_payload, dict):
+        ui_payload = {}
+
+    primary_numbers = ui_payload.get("primary_numbers")
+    if not isinstance(primary_numbers, dict):
+        primary_numbers = {}
+
+    for k, v in (extra.get("primary_numbers") or {}).items():
+        if primary_numbers.get(k) in (None, "", []):
+            primary_numbers[k] = v
+
+    ui_payload["primary_numbers"] = primary_numbers
+
+    if ui_payload.get("recommendation_compact") in (None, "", []):
+        ui_payload["recommendation_compact"] = extra.get("compact_label")
+
+    draft["ui_payload"] = ui_payload
+
+    if draft.get("compact_label") in (None, "", []):
+        draft["compact_label"] = extra.get("compact_label")
+
+    if draft.get("money_view") in (None, "", []):
+        draft["money_view"] = extra.get("money_view")
+
+    return draft
