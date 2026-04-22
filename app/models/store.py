@@ -52,4 +52,4 @@ class Store(TimestampMixin, Base):
     uploads: Mapped[list["Upload"]] = relationship(back_populates="store")
 
     # Add this relationship
-    profit_configurations: Mapped[list["ProfitConfiguration"]] = relationship("ProfitConfiguration", back_populates="store")
+    profit_configurations = relationship("ProfitConfiguration", back_populates="store")
