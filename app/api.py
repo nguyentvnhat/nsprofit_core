@@ -28,6 +28,14 @@ from app.services.discount_recommendation_service import DiscountAnalysisError, 
 from app.services.file_parser import ShopifyExportParseError
 from app.services.pipeline import process_shopify_csv
 
+from app.services.profit_configuration_service import (
+    get_profit_configuration,
+    create_profit_configuration,
+    update_profit_configuration,
+    delete_profit_configuration,
+    set_default_configuration,
+)
+
 logger = logging.getLogger(__name__)
 
 _FILE_LOG_CONFIGURED = False
@@ -173,3 +181,74 @@ async def discount_recommendations(
             status_code=500,
             detail=f"discount processing failed: {type(exc).__name__}: {exc}",
         ) from exc
+
+@app.get("/api/stores/{store_id}/profit-configurations")
+def get_profit_configurations(
+    store_id: int,
+    db: Session = Depends(get_db),
+):
+    """Get all profit configurations for a store."""
+    configs = db.query(ProfitConfiguration).filter(
+        ProfitConfiguration.store_id == store_id
+    ).all()
+    return {"configurations": [c.to_dict() for c in configs]}
+
+
+@app.post("/api/stores/{store_id}/profit-configurations")
+def create_profit_configuration_endpoint(
+    store_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    """Create a new profit configuration."""
+    config = create_profit_configuration(
+        db,
+        store_id=store_id,
+        name=payload.get("name", "Default"),
+        cogs_mode=payload.get("cogs", {}).get("mode"),
+        cogs_value=payload.get("cogs", {}).get("value"),
+        shipping_mode=payload.get("shipping_costs", {}).get("mode"),
+        shipping_value=payload.get("shipping_costs", {}).get("value"),
+        transaction_fee_mode=payload.get("transaction_fees", {}).get("mode"),
+        transaction_fee_value=payload.get("transaction_fees", {}).get("value"),
+        custom_costs=payload.get("custom_costs", []),
+        is_default=payload.get("is_default", False),
+    )
+    return config.to_dict()
+
+
+@app.put("/api/profit-configurations/{config_id}")
+def update_profit_configuration_endpoint(
+    config_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    """Update a profit configuration."""
+    config = update_profit_configuration(db, config_id, **payload)
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+    return config.to_dict()
+
+
+@app.delete("/api/profit-configurations/{config_id}")
+def delete_profit_configuration_endpoint(
+    config_id: int,
+    db: Session = Depends(get_db),
+):
+    """Delete a profit configuration."""
+    if not delete_profit_configuration(db, config_id):
+        raise HTTPException(status_code=404, detail="Configuration not found")
+    return {"success": True}
+
+
+@app.post("/api/stores/{store_id}/profit-configurations/{config_id}/set-default")
+def set_default_configuration_endpoint(
+    store_id: int,
+    config_id: int,
+    db: Session = Depends(get_db),
+):
+    """Set a configuration as default for the store."""
+    config = set_default_configuration(db, store_id, config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+    return config.to_dict()

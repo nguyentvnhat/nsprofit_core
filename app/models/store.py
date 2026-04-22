@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.mixins import TimestampMixin
+from app.models.profit_configuration import ProfitConfiguration
 
 if TYPE_CHECKING:
     from app.models.data_source import DataSource
@@ -49,3 +50,6 @@ class Store(TimestampMixin, Base):
         back_populates="store", cascade="all, delete-orphan"
     )
     uploads: Mapped[list["Upload"]] = relationship(back_populates="store")
+
+    # Add this relationship
+    profit_configurations: Mapped[list["ProfitConfiguration"]] = relationship("ProfitConfiguration", back_populates="store")
