@@ -36,6 +36,8 @@ from app.services.profit_configuration_service import (
     set_default_configuration,
 )
 
+from app.models.profit_configuration import ProfitConfiguration
+
 logger = logging.getLogger(__name__)
 
 _FILE_LOG_CONFIGURED = False
